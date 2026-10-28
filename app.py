@@ -24,35 +24,24 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-THEMES = {
-    "Midnight Blue": {"bg":"#0B1220","panel":"#111C30","sidebar":"#0D1728","text":"#F1F5F9","muted":"#A8B7CC","accent":"#38BDF8","accent2":"#818CF8","border":"#26364D","plot":"plotly_dark"},
-    "Emerald Executive": {"bg":"#071A17","panel":"#102B25","sidebar":"#09231E","text":"#ECFDF5","muted":"#A7C8BC","accent":"#34D399","accent2":"#A3E635","border":"#245247","plot":"plotly_dark"},
-    "Royal Purple": {"bg":"#140F24","panel":"#211936","sidebar":"#19132D","text":"#F5F3FF","muted":"#C4B5FD","accent":"#A78BFA","accent2":"#F0ABFC","border":"#44345F","plot":"plotly_dark"},
-    "Light Professional": {"bg":"#F3F6FB","panel":"#FFFFFF","sidebar":"#E8EEF7","text":"#172033","muted":"#536179","accent":"#2563EB","accent2":"#0D9488","border":"#D3DDEB","plot":"plotly_white"},
-    "Graphite & Gold": {"bg":"#141414","panel":"#202020","sidebar":"#191919","text":"#FAF7EF","muted":"#C7C0AE","accent":"#F5C451","accent2":"#E9A23B","border":"#454039","plot":"plotly_dark"},
-}
-with st.sidebar:
-    st.markdown("## 📦 Demand Intelligence")
-    st.caption("Retail forecasting • inventory decision support")
-    theme_name = st.selectbox("🎨 Dashboard theme", list(THEMES), index=0)
-T = THEMES[theme_name]
+# Fixed Teal & Beige theme (theme selector intentionally removed)
+T = {"bg":"#F4F0E6", "panel":"#FFFCF5", "sidebar":"#153E3B", "text":"#18312F", "muted":"#526B66", "accent":"#0F766E", "accent2":"#C49A55", "border":"#D8D0BF", "plot":"plotly_white"}
 st.markdown(f"""
 <style>
-:root {{ color-scheme: {'light' if theme_name == 'Light Professional' else 'dark'}; }}
 .stApp {{background:{T['bg']}; color:{T['text']};}}
 [data-testid="stSidebar"] {{background:{T['sidebar']}; border-right:1px solid {T['border']};}}
-[data-testid="stSidebar"] * {{color:{T['text']} !important;}}
+[data-testid="stSidebar"] * {{color:#F8F5EC !important;}}
 [data-testid="stMetric"] {{background:linear-gradient(135deg,{T['panel']},{T['bg']}); border:1px solid {T['border']}; padding:17px 18px; border-radius:15px;}}
 [data-testid="stMetricLabel"] {{color:{T['muted']} !important;}}
 [data-testid="stMetricValue"] {{color:{T['text']} !important;}}
 h1,h2,h3 {{color:{T['text']} !important; letter-spacing:-0.025em;}}
 p, label, .stCaption {{color:{T['muted']};}}
 div.stButton > button, div.stDownloadButton > button {{border-radius:10px; border:1px solid {T['border']}; font-weight:600;}}
-div.stButton > button[kind="primary"] {{background:{T['accent']}; color:{T['bg']}; border:0;}}
+div.stButton > button[kind="primary"] {{background:{T['accent']}; color:#FFFFFF; border:0;}}
 [data-testid="stDataFrame"] {{border:1px solid {T['border']}; border-radius:12px;}}
-.hero {{background:linear-gradient(115deg,{T['panel']},{T['bg']}); border:1px solid {T['border']}; padding:26px 28px; border-radius:18px; margin:5px 0 20px;}}
-.hero h1 {{font-size:30px; margin:0 0 8px;}}
-.hero p {{font-size:15px; margin:0; color:{T['muted']};}}
+.hero {{background:linear-gradient(115deg,#153E3B,#246B63); border:1px solid #2D776D; padding:26px 28px; border-radius:18px; margin:5px 0 20px;}}
+.hero h1 {{font-size:30px; margin:0 0 8px; color:#FFFDF7 !important;}}
+.hero p {{font-size:15px; margin:0; color:#E2F0E8;}}
 .callout {{background:{T['panel']}; border:1px solid {T['border']}; border-left:4px solid {T['accent']}; padding:13px 16px; border-radius:10px; margin:8px 0 16px; color:{T['text']};}}
 .small-muted {{color:{T['muted']}; font-size:12px;}}
 </style>
@@ -79,6 +68,23 @@ risk_summary = read_csv(REPORTS / "inventory_risk_summary.csv")
 summary = read_json(REPORTS / "part4_inventory_summary.json")
 metrics = read_csv(REPORTS / "model_comparison.csv")
 if metrics.empty: metrics = read_csv(REPORTS / "validated_model_metrics.csv")
+# Normalize common metric-header variants from saved evaluation files.
+if not metrics.empty:
+    metrics.columns = [str(c).strip() for c in metrics.columns]
+    rename = {}
+    for col in metrics.columns:
+        key = col.strip().lower().replace(" ", "_").replace("%", "percent")
+        if key in {"model", "model_name", "algorithm"}: rename[col] = "Model"
+        elif key in {"mae", "mean_absolute_error"}: rename[col] = "MAE"
+        elif key in {"rmse", "root_mean_squared_error"}: rename[col] = "RMSE"
+        elif key in {"wape", "wape_percent", "wapepercent"}: rename[col] = "WAPE_percent"
+        elif key in {"mape", "mape_percent", "mapepercent"}: rename[col] = "MAPE_percent"
+    metrics = metrics.rename(columns=rename)
+    if "Model" not in metrics.columns and len(metrics.columns):
+        metrics = metrics.rename(columns={metrics.columns[0]: "Model"})
+    for col in ["MAE", "RMSE", "WAPE_percent", "MAPE_percent"]:
+        if col in metrics.columns: metrics[col] = pd.to_numeric(metrics[col], errors="coerce")
+
 clean_data = read_csv(DATASET / "sales_clean.csv")
 features_data = read_csv(DATASET / "modeling_features.csv")
 config = read_json(CONFIG / "inventory_config.json")
@@ -118,25 +124,38 @@ all_families = sorted(inventory["family"].dropna().unique().tolist()) if "family
 risk_order = ["Critical","High","Medium","Low"]
 all_risks = [r for r in risk_order if r in inventory.get("inventory_risk", pd.Series(dtype=str)).unique()]
 with st.sidebar:
-    st.markdown("---")
-    st.markdown("### 🔎 Global filters")
-    selected_stores = st.multiselect("Stores", all_stores, default=all_stores, key="stores_filter")
-    selected_families = st.multiselect("Product families", all_families, default=all_families, key="families_filter")
-    selected_risks = st.multiselect("Inventory risk", all_risks, default=all_risks, key="risk_filter")
     if st.button("↻ Refresh data", use_container_width=True):
         st.cache_data.clear(); st.rerun()
     st.markdown("---")
-    st.caption("MCA research prototype • v2 dashboard")
+    st.caption("MCA research prototype • Teal & Beige edition")
 
 pages = [
     "Executive Overview", "Demand Forecasting", "Inventory Optimizer",
     "Smart Alerts", "Sales Explorer", "What-if Simulator",
     "Model Evaluation", "Store & Product Analytics",
-    "Business Intelligence", "Data Quality & Explorer", "Research & Limitations"
+    "Business Intelligence", "Data Quality & Explorer"
 ]
 with st.sidebar:
     page = st.radio("NAVIGATION", pages, index=0)
 
+# Global filters are placed in the Executive Overview content area, not the sidebar.
+# Their selections persist in session state and are applied to all dashboard sections.
+if "stores_filter" not in st.session_state: st.session_state["stores_filter"] = all_stores.copy()
+if "families_filter" not in st.session_state: st.session_state["families_filter"] = all_families.copy()
+if "risk_filter" not in st.session_state: st.session_state["risk_filter"] = all_risks.copy()
+if page == "Executive Overview":
+    st.markdown("### 🔎 Global filters")
+    fx1, fx2, fx3 = st.columns([1, 1.5, 1])
+    with fx1:
+        st.multiselect("Stores", all_stores, key="stores_filter")
+    with fx2:
+        st.multiselect("Product families", all_families, key="families_filter")
+    with fx3:
+        st.multiselect("Inventory risk", all_risks, key="risk_filter")
+    st.caption("These filters are shared by the other dashboard sections. Return to Executive Overview to change them.")
+selected_stores = [x for x in st.session_state["stores_filter"] if x in all_stores]
+selected_families = [x for x in st.session_state["families_filter"] if x in all_families]
+selected_risks = [x for x in st.session_state["risk_filter"] if x in all_risks]
 fi = inventory[inventory["store_nbr"].isin(selected_stores) & inventory["family"].isin(selected_families) & inventory["inventory_risk"].isin(selected_risks)].copy()
 ff = forecast[forecast["store_nbr"].isin(selected_stores) & forecast["family"].isin(selected_families)].copy()
 if "forecast_date" in ff: ff = ff.dropna(subset=["forecast_date"])
@@ -155,21 +174,28 @@ if page == "Executive Overview":
     c3.metric("Suggested order quantity", fmt(total_orders))
     c4.metric("Critical / high risk", f"{critical_count:,} / {high_count:,}")
     st.markdown("### Executive decision console")
-    st.caption("Select a saved model to inspect its validation score. This selector changes the evaluation view; it does not silently swap/retrain the model behind the saved forecast CSV.")
-    model_names = metrics["Model"].astype(str).tolist() if not metrics.empty and "Model" in metrics else ["XGBoost","Random Forest","Seasonal Naive"]
+    st.caption("Choose a model to dynamically update its saved validation metrics below. This does not retrain the model or change already-generated forecast CSVs.")
+    if not metrics.empty and "Model" in metrics.columns:
+        model_names = metrics["Model"].dropna().astype(str).drop_duplicates().tolist()
+    else:
+        model_names = ["XGBoost", "Random Forest", "Seasonal Naive"]
+    if not model_names:
+        model_names = ["No saved model metrics"]
     chosen_model = st.selectbox("Select model", model_names, key="overview_model")
-    if st.button("▶ Apply model selection", type="primary", key="apply_overview_model"):
-        st.session_state["active_model_view"] = chosen_model
-    active = st.session_state.get("active_model_view", chosen_model)
-    if not metrics.empty and "Model" in metrics:
-        row = metrics[metrics["Model"].astype(str) == active]
-        if not row.empty:
-            r=row.iloc[0]
-            a,b,c=st.columns(3)
-            a.metric("Selected model", active)
-            if "MAE" in row: b.metric("MAE", f"{float(r['MAE']):.2f}")
-            if "RMSE" in row: c.metric("RMSE", f"{float(r['RMSE']):.2f}")
-            if "WAPE_percent" in row: st.caption(f"WAPE: {float(r['WAPE_percent']):.2f}%")
+    # The selected model is applied immediately, without a separate non-reactive button.
+    st.session_state["active_model_view"] = chosen_model
+    active = st.session_state["active_model_view"]
+    if not metrics.empty and "Model" in metrics.columns and active in metrics["Model"].astype(str).values:
+        row = metrics[metrics["Model"].astype(str) == active].iloc[0]
+        a,b,c,d = st.columns(4)
+        a.metric("Selected model", active)
+        b.metric("MAE", f"{row['MAE']:,.3f}" if "MAE" in metrics.columns and pd.notna(row.get("MAE")) else "Not available")
+        c.metric("RMSE", f"{row['RMSE']:,.3f}" if "RMSE" in metrics.columns and pd.notna(row.get("RMSE")) else "Not available")
+        d.metric("WAPE", f"{row['WAPE_percent']:.2f}%" if "WAPE_percent" in metrics.columns and pd.notna(row.get("WAPE_percent")) else (f"{row['MAPE_percent']:.2f}% MAPE" if "MAPE_percent" in metrics.columns and pd.notna(row.get("MAPE_percent")) else "Not available"))
+    elif metrics.empty:
+        st.warning("No saved model evaluation report is available. Add reports/model_comparison.csv or reports/validated_model_metrics.csv to show measured metrics.")
+    else:
+        st.info("The selected model has no matching row in the saved evaluation report.")
     if not ff.empty:
         daily=ff.groupby("forecast_date",as_index=False)["predicted_sales"].sum()
         chart(px.area(daily,x="forecast_date",y="predicted_sales",markers=True,title="Forecast demand timeline"),380)
@@ -291,30 +317,39 @@ elif page == "What-if Simulator":
 
 # -------------------- MODEL EVALUATION --------------------
 elif page == "Model Evaluation":
-    hero("Model Evaluation Lab", "Compare saved validation metrics and inspect model-selection evidence.")
-    if metrics.empty:
-        st.error("Model metrics file is missing. Expected reports/model_comparison.csv or reports/validated_model_metrics.csv.")
-        st.caption("No evaluation metrics are fabricated when the report file is absent.")
+    hero("Model Evaluation Lab", "Compare saved validation metrics and inspect evidence behind model selection.")
+    if metrics.empty or "Model" not in metrics.columns:
+        st.error("No readable saved model metrics were found. Expected reports/model_comparison.csv or reports/validated_model_metrics.csv.")
+        st.info("Check the file's headers and confirm that it is committed to GitHub under the reports/ folder. The dashboard will not invent evaluation results.")
     else:
-        st.markdown("### Validation scorecard")
-        st.dataframe(metrics,use_container_width=True,hide_index=True)
-        if {"Model","WAPE_percent"}.issubset(metrics.columns):
-            best=metrics.loc[pd.to_numeric(metrics["WAPE_percent"],errors="coerce").idxmin()]
-            a,b,c=st.columns(3)
-            a.metric("Lowest-WAPE model",str(best["Model"]))
-            b.metric("Best WAPE",f"{float(best['WAPE_percent']):.2f}%")
-            c.metric("Models compared",len(metrics))
-            chart(px.bar(metrics,x="Model",y="WAPE_percent",color="Model",title="WAPE comparison — lower is better"),370)
-        if {"Model","MAE","RMSE"}.issubset(metrics.columns):
-            melted=metrics.melt(id_vars="Model",value_vars=["MAE","RMSE"],var_name="Metric",value_name="Error")
-            chart(px.bar(melted,x="Model",y="Error",color="Metric",barmode="group",title="MAE and RMSE comparison — lower is better"),390)
-        st.markdown("### What the metrics mean")
-        st.write("- **MAE:** average absolute prediction error in the target's units.")
-        st.write("- **RMSE:** penalizes large errors more strongly than MAE.")
-        st.write("- **WAPE:** total absolute error divided by total actual demand; lower is better.")
-        st.markdown("### Validation notes")
-        st.write("Saved project evaluation uses a 28-day validation window (2014-08-06 to 2014-09-02) and rolling one-day-ahead evaluation with actual previous-day lags, as documented in the project.")
-        st.caption("These are saved evaluation results. Selecting a model here does not retrain it or regenerate forecast files.")
+        metric_cols = [c for c in ["MAE", "RMSE", "WAPE_percent", "MAPE_percent"] if c in metrics.columns and metrics[c].notna().any()]
+        if not metric_cols:
+            st.warning("The metrics file loaded, but its columns were not recognized. Expected model, MAE, RMSE, WAPE_percent and/or MAPE_percent.")
+            st.dataframe(metrics, use_container_width=True, hide_index=True)
+        else:
+            score = metrics[["Model"] + metric_cols].copy()
+            for col in metric_cols: score[col] = pd.to_numeric(score[col], errors="coerce")
+            st.markdown("### Validation scorecard")
+            st.dataframe(score, use_container_width=True, hide_index=True)
+            preferred = "WAPE_percent" if "WAPE_percent" in metric_cols else metric_cols[0]
+            valid = score.dropna(subset=[preferred]).sort_values(preferred)
+            if not valid.empty:
+                best = valid.iloc[0]
+                a,b,c = st.columns(3)
+                a.metric("Best saved model", str(best["Model"]))
+                b.metric(f"Lowest {preferred.replace('_percent','').replace('_',' ').upper()}", f"{best[preferred]:.3f}" + ("%" if "percent" in preferred else ""))
+                c.metric("Models evaluated", f"{score['Model'].nunique():,}")
+                chart(px.bar(valid, x="Model", y=preferred, color="Model", title=f"{preferred.replace('_percent','').replace('_',' ').upper()} comparison — lower is better"), 380)
+            error_cols = [c for c in ["MAE", "RMSE"] if c in metric_cols]
+            if error_cols:
+                err = score.melt(id_vars="Model", value_vars=error_cols, var_name="Metric", value_name="Error")
+                chart(px.bar(err, x="Model", y="Error", color="Metric", barmode="group", title="Absolute error comparison — lower is better"), 390)
+            st.markdown("### Metric guide")
+            st.write("- **MAE:** average absolute prediction error in the target's units.")
+            st.write("- **RMSE:** gives larger errors more weight.")
+            st.write("- **WAPE:** total absolute error divided by total actual demand; lower is better.")
+            st.write("- **MAPE:** average percentage error; interpretation can be unstable when actual values are zero or very small.")
+            st.caption("These are saved validation results. Model selection changes the displayed comparison only; it does not retrain models or regenerate forecasts.")
 
 # -------------------- STORE & PRODUCT ANALYTICS --------------------
 elif page == "Store & Product Analytics":
@@ -397,32 +432,6 @@ elif page == "Data Quality & Explorer":
     found=[f"{n}: {'available' if (REPORTS/n).exists() else 'not included in this deployment'}" for n in artifact_names]
     st.write("\n".join(f"- {x}" for x in found))
 
-# -------------------- RESEARCH & LIMITATIONS --------------------
-elif page == "Research & Limitations":
-    hero("Research Methodology & Limitations", "An evidence-based summary of the current prototype, its evaluation, and the boundaries of its conclusions.")
-    st.markdown("### Research workflow")
-    steps=[("1. Data preparation","Clean historical store-family sales, parse dates, and prepare lag/rolling/calendar features."),("2. Model training","Compare tree-based models with a seasonal-naive baseline using the saved training pipeline."),("3. Validation","Evaluate on a held-out 28-day period using rolling one-day-ahead predictions."),("4. Forecasting","Generate a seven-day store–product-family forecast from the saved pipeline outputs."),("5. Inventory decision support","Estimate stock cover, reorder point, safety stock and suggested order quantities using stated assumptions.")]
-    for title,desc in steps: st.markdown(f"**{title}**  \n{desc}")
-    st.markdown("### Saved model evidence")
-    if not metrics.empty: st.dataframe(metrics,use_container_width=True,hide_index=True)
-    else: st.info("Model evaluation file not present.")
-    st.markdown("### Important limitations")
-    limitations=[
-        "The source dataset is historical store sales; it does not provide verified on-hand inventory, stockout events, or supplier lead times.",
-        "Inventory, stock cover, safety stock, reorder points, and suggested orders are simulated estimates, not real operational inventory records.",
-        "Future promotions are assumed to be zero; actual promotional activity could materially change demand.",
-        "Missing dates filled with zero sales may conflate a true zero-sales day with missing observations.",
-        "The forecast horizon and evaluation period are limited; performance can vary by store, product family, season, and external events.",
-        "The dashboard reads saved forecast outputs. Changing the model selector does not automatically retrain a model or regenerate predictions."
-    ]
-    for item in limitations: st.markdown(f"- {item}")
-    st.markdown("### Configuration used for inventory assumptions")
-    if config: st.json(config)
-    else: st.caption("Inventory configuration JSON is not included in this deployment.")
-    if summary: 
-        with st.expander("View saved forecast summary JSON"): st.json(summary)
-    st.markdown("### Viva-ready interpretation")
-    st.write("This prototype demonstrates a retail demand forecasting workflow and a transparent inventory-planning simulation. It supports exploratory decisions and model comparison, but it is not a production replenishment system until real inventory, supplier, promotion, and stockout data are integrated.")
 
 st.markdown("---")
 st.markdown('<div class="small-muted">AI-Powered Demand Forecasting & Inventory Optimization • MCA research prototype • Values are derived from saved project artifacts; simulated inventory is labelled explicitly.</div>',unsafe_allow_html=True)
