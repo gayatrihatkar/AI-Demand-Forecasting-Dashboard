@@ -1,0 +1,5 @@
+inventory_risk,number_of_items,total_suggested_order_quantity,total_simulated_stock,forecast_demand_next_7_days,percentage_of_items
+Critical,723,950976,196332.57,929658.26,40.57
+High,447,277302,135989.66,784914.45,25.08
+Low,59,0,357185.35,228647.34,3.31
+Medium,553,1005137,2084911.49,2200392.48,31.03
