@@ -1,854 +1,407 @@
-
-import json
 from pathlib import Path
-
-import numpy as np
+import json
+import warnings
 import pandas as pd
+import numpy as np
+import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
-import streamlit as st
-
-# ---------------------------------------------------------------------------
-# CONFIGURATION
-# ---------------------------------------------------------------------------
 
 PROJECT_DIR = Path(__file__).resolve().parent
-
-FORECASTS_DIR = PROJECT_DIR / "forecasts"
-REPORTS_DIR = PROJECT_DIR / "reports"
-CONFIG_DIR = PROJECT_DIR / "config"
+DATA_CANDIDATES = [
+    PROJECT_DIR / "dataset" / "processed" / "sales_clean.csv",
+    PROJECT_DIR / "data" / "sales_clean.csv",
+    PROJECT_DIR / "sales_clean.csv",
+]
+FORECAST_CANDIDATES = [
+    PROJECT_DIR / "forecasts" / "demand_forecast_7_days.csv",
+    PROJECT_DIR / "demand_forecast_7_days.csv",
+]
+INVENTORY_CANDIDATES = [
+    PROJECT_DIR / "forecasts" / "inventory_optimization_recommendations.csv",
+    PROJECT_DIR / "inventory_optimization_recommendations.csv",
+]
+MODEL_METRICS_CANDIDATES = [
+    PROJECT_DIR / "reports" / "validated_model_metrics.csv",
+    PROJECT_DIR / "reports" / "model_comparison.csv",
+]
+INVENTORY_SUMMARY_CANDIDATES = [
+    PROJECT_DIR / "reports" / "part4_inventory_summary.json",
+]
+EVAL_SUMMARY_CANDIDATES = [
+    PROJECT_DIR / "reports" / "part3_evaluation_summary.json",
+]
+EDA_SUMMARY_CANDIDATES = [
+    PROJECT_DIR / "reports" / "eda_summary.json",
+]
 
 st.set_page_config(
-    page_title="Demand Intelligence | Inventory AI",
+    page_title="DemandIQ | Forecast & Inventory Intelligence",
     page_icon="📦",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
-
-# ---------------------------------------------------------------------------
-# DARK THEME
-# ---------------------------------------------------------------------------
 
 st.markdown("""
 <style>
-    .stApp {
-        background-color: #0b1020;
-        color: #f1f5f9;
-    }
-
-    section[data-testid="stSidebar"] {
-        background-color: #111827;
-        border-right: 1px solid #273449;
-    }
-
-    div[data-testid="stMetric"] {
-        background: linear-gradient(135deg, #151f33, #101827);
-        border: 1px solid #273449;
-        padding: 20px;
-        border-radius: 14px;
-    }
-
-    div[data-testid="stMetricLabel"] {
-        color: #9caec5;
-    }
-
-    div[data-testid="stMetricValue"] {
-        color: #f8fafc;
-    }
-
-    .hero {
-        background: linear-gradient(120deg, #14213d, #172554, #164e63);
-        border: 1px solid #334155;
-        padding: 28px;
-        border-radius: 18px;
-        margin-bottom: 24px;
-    }
-
-    .hero h1 {
-        color: #f8fafc;
-        font-size: 30px;
-        margin-bottom: 8px;
-    }
-
-    .hero p {
-        color: #cbd5e1;
-        font-size: 15px;
-    }
-
-    .section-title {
-        color: #e2e8f0;
-        font-size: 22px;
-        font-weight: 700;
-        margin-top: 16px;
-        margin-bottom: 12px;
-    }
-
-    .notice {
-        background-color: #332719;
-        border: 1px solid #8b6b2d;
-        color: #fde68a;
-        padding: 14px;
-        border-radius: 10px;
-        margin-bottom: 16px;
-    }
-
-    .small-muted {
-        color: #94a3b8;
-        font-size: 13px;
-    }
-
-    div.stButton > button {
-        border-radius: 9px;
-        border: 1px solid #334155;
-    }
-
-    [data-testid="stDataFrame"] {
-        border: 1px solid #273449;
-        border-radius: 10px;
-    }
+    .block-container {padding-top: 1.4rem; padding-bottom: 2rem; max-width: 1500px;}
+    [data-testid="stMetric"] {background: rgba(80,110,150,.10); border: 1px solid rgba(130,150,180,.25); padding: 14px 16px; border-radius: 14px;}
+    .hero {padding: 1.2rem 1.4rem; border-radius: 18px; background: linear-gradient(120deg, rgba(40,80,125,.22), rgba(25,150,130,.10)); border: 1px solid rgba(120,150,180,.25); margin-bottom: 1rem;}
+    .small-note {font-size: .88rem; opacity: .82;}
+    div[data-testid="stDataFrame"] {border-radius: 10px;}
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------------------------------------------------------------------
-# DATA LOADING
-# ---------------------------------------------------------------------------
+def first_existing(paths):
+    return next((p for p in paths if p.exists()), None)
 
-@st.cache_data(ttl=60)
+@st.cache_data(show_spinner=False)
 def load_csv(path_string):
-    path = Path(path_string)
-    if not path.exists():
-        return pd.DataFrame()
-    return pd.read_csv(path)
+    return pd.read_csv(path_string, low_memory=False)
 
-@st.cache_data(ttl=60)
+@st.cache_data(show_spinner=False)
 def load_json(path_string):
-    path = Path(path_string)
-    if not path.exists():
-        return {}
-    with open(path, "r") as f:
+    with open(path_string, "r", encoding="utf-8") as f:
         return json.load(f)
 
-forecast_path = FORECASTS_DIR / "demand_forecast_7_days.csv"
-inventory_path = FORECASTS_DIR / "inventory_optimization_recommendations.csv"
-store_path = FORECASTS_DIR / "store_inventory_summary.csv"
-risk_path = REPORTS_DIR / "inventory_risk_summary.csv"
-summary_path = REPORTS_DIR / "part4_inventory_summary.json"
+def load_first_csv(paths):
+    path = first_existing(paths)
+    if path is None:
+        return None, None
+    try:
+        return load_csv(str(path)), path
+    except Exception as exc:
+        st.warning(f"Could not read `{path.name}`: {exc}")
+        return None, path
 
-forecast = load_csv(str(forecast_path))
-inventory = load_csv(str(inventory_path))
-stores = load_csv(str(store_path))
-risk_summary = load_csv(str(risk_path))
-summary = load_json(str(summary_path))
+def load_first_json(paths):
+    path = first_existing(paths)
+    if path is None:
+        return {}, None
+    try:
+        return load_json(str(path)), path
+    except Exception as exc:
+        st.warning(f"Could not read `{path.name}`: {exc}")
+        return {}, path
 
-if forecast.empty or inventory.empty:
-    st.error(
-        "Dashboard data is missing. Please run Part 4 in Google Colab first."
-    )
-    st.stop()
+def find_col(df, candidates):
+    if df is None:
+        return None
+    lookup = {str(c).strip().lower(): c for c in df.columns}
+    for candidate in candidates:
+        if candidate.lower() in lookup:
+            return lookup[candidate.lower()]
+    for c in df.columns:
+        if any(token in str(c).lower() for token in candidates):
+            return c
+    return None
 
-# ---------------------------------------------------------------------------
-# NORMALIZE DATA
-# ---------------------------------------------------------------------------
+def fmt_number(value, digits=0):
+    try:
+        if pd.isna(value):
+            return "—"
+        return f"{float(value):,.{digits}f}"
+    except (TypeError, ValueError):
+        return "—"
 
-if "forecast_date" in forecast.columns:
-    forecast["forecast_date"] = pd.to_datetime(
-        forecast["forecast_date"], errors="coerce"
-    )
+def safe_numeric(df, col):
+    if df is None or col is None:
+        return pd.Series(dtype=float)
+    return pd.to_numeric(df[col], errors="coerce")
 
-numeric_columns_forecast = [
-    "store_nbr", "predicted_sales"
-]
-for col in numeric_columns_forecast:
-    if col in forecast.columns:
-        forecast[col] = pd.to_numeric(
-            forecast[col], errors="coerce"
-        )
+history_path = first_existing(DATA_CANDIDATES)
+history = None
+if history_path:
+    try:
+        history = load_csv(str(history_path))
+    except Exception as exc:
+        st.error(f"Historical dataset could not be loaded: {exc}")
 
-numeric_columns_inventory = [
-    "store_nbr",
-    "historical_avg_daily_sales_28d",
-    "simulated_current_stock",
-    "estimated_reorder_point",
-    "estimated_safety_stock",
-    "estimated_target_stock",
-    "suggested_order_quantity",
-    "forecast_demand_next_7_days",
-    "forecast_daily_average"
-]
+forecast, forecast_path = load_first_csv(FORECAST_CANDIDATES)
+inventory, inventory_path = load_first_csv(INVENTORY_CANDIDATES)
+metrics, metrics_path = load_first_csv(MODEL_METRICS_CANDIDATES)
+inventory_summary, _ = load_first_json(INVENTORY_SUMMARY_CANDIDATES)
+evaluation_summary, _ = load_first_json(EVAL_SUMMARY_CANDIDATES)
+eda_summary, _ = load_first_json(EDA_SUMMARY_CANDIDATES)
 
-for col in numeric_columns_inventory:
-    if col in inventory.columns:
-        inventory[col] = pd.to_numeric(
-            inventory[col], errors="coerce"
-        ).fillna(0)
-
-for col in ["family", "inventory_risk"]:
-    if col in inventory.columns:
-        inventory[col] = inventory[col].astype(str)
-
-if "reorder_recommended" in inventory.columns:
-    inventory["reorder_recommended"] = (
-        inventory["reorder_recommended"]
-        .astype(str).str.lower().isin(["true", "1", "yes"])
-    )
-
-# ---------------------------------------------------------------------------
-# SIDEBAR
-# ---------------------------------------------------------------------------
-
-st.sidebar.markdown("## 📦 Demand Intelligence")
-st.sidebar.caption("AI Forecasting & Inventory Control")
-st.sidebar.markdown("---")
-
+st.sidebar.title("📦 DemandIQ")
+st.sidebar.caption("Machine-learning demand forecasting and inventory decision support")
 page = st.sidebar.radio(
-    "NAVIGATION",
-    [
-        "Overview",
-        "Demand Forecasting",
-        "Inventory Optimization",
-        "Store Analysis",
-        "Product Analysis",
-        "Data Explorer"
-    ]
+    "Navigate",
+    ["Executive Overview", "Demand Forecasts", "Inventory Optimizer", "Model Evaluation", "Store & Product Analytics", "Data Quality & Explorer", "Research & Limitations"],
 )
+st.sidebar.divider()
+st.sidebar.caption("Project: AI-Powered Demand Forecasting and Inventory Optimization System")
+st.sidebar.caption("Forecast files are precomputed outputs. Inventory values are simulated, not live stock.")
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("### Dashboard Filters")
+st.markdown("""
+<div class="hero">
+  <h1 style="margin:0">Demand Forecasting & Inventory Intelligence</h1>
+  <p style="margin:.5rem 0 0 0">A research dashboard for demand prediction, model validation, stock-risk analysis, and replenishment planning.</p>
+</div>
+""", unsafe_allow_html=True)
 
-all_stores = sorted(
-    inventory["store_nbr"].dropna().unique().tolist()
-)
-all_families = sorted(
-    inventory["family"].dropna().unique().tolist()
-)
-all_risks = [
-    r for r in ["Critical", "High", "Medium", "Low"]
-    if r in inventory["inventory_risk"].unique()
-]
+date_col = find_col(history, ["date"])
+sales_col = find_col(history, ["sales", "target"])
+store_col = find_col(history, ["store_nbr", "store", "store_id"])
+family_col = find_col(history, ["family", "product_family", "category"])
+promotion_col = find_col(history, ["onpromotion", "promotion"])
 
-selected_stores = st.sidebar.multiselect(
-    "Select stores",
-    options=all_stores,
-    default=all_stores
-)
+if history is not None:
+    if date_col:
+        history[date_col] = pd.to_datetime(history[date_col], errors="coerce")
+    if sales_col:
+        history[sales_col] = pd.to_numeric(history[sales_col], errors="coerce")
+    if store_col:
+        history[store_col] = history[store_col].astype(str)
+    if family_col:
+        history[family_col] = history[family_col].astype(str)
 
-selected_families = st.sidebar.multiselect(
-    "Select product families",
-    options=all_families,
-    default=all_families
-)
-
-selected_risks = st.sidebar.multiselect(
-    "Inventory risk",
-    options=all_risks,
-    default=all_risks
-)
-
-if st.sidebar.button("🔄 Refresh dashboard"):
-    st.cache_data.clear()
-    st.rerun()
-
-# Apply filters
-filtered_inventory = inventory[
-    inventory["store_nbr"].isin(selected_stores)
-    & inventory["family"].isin(selected_families)
-    & inventory["inventory_risk"].isin(selected_risks)
-].copy()
-
-filtered_forecast = forecast[
-    forecast["store_nbr"].isin(selected_stores)
-    & forecast["family"].isin(selected_families)
-].copy()
-
-# ---------------------------------------------------------------------------
-# COMMON HELPERS
-# ---------------------------------------------------------------------------
-
-def money_or_number(value):
-    return f"{value:,.0f}"
-
-def show_hero(title, subtitle):
-    st.markdown(
-        f"""
-        <div class="hero">
-            <h1>{title}</h1>
-            <p>{subtitle}</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-def show_inventory_warning():
-    st.markdown(
-        """
-        <div class="notice">
-            <b>Research prototype — simulated inventory:</b>
-            The dataset contains historical sales, not actual stock-on-hand.
-            Inventory, lead time, reorder point and order quantity are
-            estimates based on assumptions. Future promotions are assumed
-            to be zero.
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-def dark_chart(fig, height=400):
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#dbeafe"),
-        margin=dict(l=20, r=20, t=55, b=20),
-        height=height,
-        legend=dict(
-            bgcolor="rgba(0,0,0,0)"
-        )
-    )
-    fig.update_xaxes(showgrid=False)
-    fig.update_yaxes(gridcolor="#263449")
-    st.plotly_chart(fig, use_container_width=True)
-
-def display_download(df, filename, label):
-    st.download_button(
-        label=label,
-        data=df.to_csv(index=False).encode("utf-8"),
-        file_name=filename,
-        mime="text/csv"
-    )
-
-# ---------------------------------------------------------------------------
-# OVERVIEW
-# ---------------------------------------------------------------------------
-
-if page == "Overview":
-
-    show_hero(
-        "Demand Intelligence Dashboard",
-        "Machine-learning forecasts, demand trends, and inventory decision support."
-    )
-
-    show_inventory_warning()
-
-    total_demand = filtered_forecast["predicted_sales"].sum()
-
-    total_stores = filtered_inventory["store_nbr"].nunique()
-    total_families = filtered_inventory["family"].nunique()
-
-    order_quantity = filtered_inventory[
-        "suggested_order_quantity"
-    ].sum()
-
-    critical_count = (
-        filtered_inventory["inventory_risk"] == "Critical"
-    ).sum()
-
-    high_count = (
-        filtered_inventory["inventory_risk"] == "High"
-    ).sum()
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Forecast demand · 7 days", money_or_number(total_demand))
-    col2.metric("Stores selected", f"{total_stores:,}")
-    col3.metric("Product families selected", f"{total_families:,}")
-
-    col4, col5, col6 = st.columns(3)
-    col4.metric("Suggested order quantity", money_or_number(order_quantity))
-    col5.metric("Critical items", f"{critical_count:,}")
-    col6.metric("High-risk items", f"{high_count:,}")
-
-    st.markdown(
-        '<div class="section-title">Forecast demand trend</div>',
-        unsafe_allow_html=True
-    )
-
-    if not filtered_forecast.empty:
-        daily = (
-            filtered_forecast.groupby("forecast_date", as_index=False)
-            ["predicted_sales"].sum()
-        )
-
-        fig = px.area(
-            daily,
-            x="forecast_date",
-            y="predicted_sales",
-            markers=True,
-            title="Total predicted sales by date"
-        )
-        dark_chart(fig, 390)
-
-    st.markdown(
-        '<div class="section-title">Inventory risk distribution</div>',
-        unsafe_allow_html=True
-    )
-
-    if not filtered_inventory.empty:
-        risk_counts = (
-            filtered_inventory["inventory_risk"]
-            .value_counts()
-            .reindex(["Critical", "High", "Medium", "Low"], fill_value=0)
-            .rename_axis("Risk")
-            .reset_index(name="Items")
-        )
-
-        fig = px.bar(
-            risk_counts,
-            x="Risk",
-            y="Items",
-            color="Risk",
-            title="Store-product combinations by simulated risk"
-        )
-        dark_chart(fig, 330)
-
-    st.markdown("### Highest suggested order quantities")
-
-    top = filtered_inventory.sort_values(
-        "suggested_order_quantity", ascending=False
-    ).head(10)
-
-    if not top.empty:
-        display_cols = [
-            "store_nbr", "family", "forecast_demand_next_7_days",
-            "simulated_current_stock", "suggested_order_quantity",
-            "inventory_risk"
-        ]
-        st.dataframe(
-            top[display_cols],
-            use_container_width=True,
-            hide_index=True
-        )
-
-# ---------------------------------------------------------------------------
-# DEMAND FORECASTING
-# ---------------------------------------------------------------------------
-
-elif page == "Demand Forecasting":
-
-    show_hero(
-        "Demand Forecasting",
-        "Explore the model's seven-day recursive sales forecasts."
-    )
-
-    st.info(
-        "Predictions are model estimates. Future promotions are assumed to be zero."
-    )
-
-    if filtered_forecast.empty:
-        st.warning("No forecast rows match the selected filters.")
+if page == "Executive Overview":
+    if history is not None and sales_col:
+        total_sales = history[sales_col].sum(skipna=True)
+        rows = len(history)
+        stores = history[store_col].nunique() if store_col else 0
+        families = history[family_col].nunique() if family_col else 0
+        dates = history[date_col].nunique() if date_col else 0
+        a, b, c, d, e = st.columns(5)
+        a.metric("Cleaned records", fmt_number(rows))
+        b.metric("Historical sales total", fmt_number(total_sales, 0))
+        c.metric("Stores", fmt_number(stores))
+        d.metric("Product families", fmt_number(families))
+        e.metric("Unique dates", fmt_number(dates))
     else:
-        total_predicted = filtered_forecast["predicted_sales"].sum()
-        mean_daily = (
-            filtered_forecast.groupby("forecast_date")["predicted_sales"]
-            .sum().mean()
-        )
+        a, b, c = st.columns(3)
+        a.metric("Selected model", evaluation_summary.get("selected_ml_model", "XGBoost"))
+        a.metric("Validation WAPE", f"{evaluation_summary.get('selected_ml_metrics', {}).get('WAPE_percent', 14.04):.2f}%")
+        b.metric("Forecast horizon", f"{inventory_summary.get('forecast_horizon_days', 7)} days")
+        c.metric("Inventory mode", "SIMULATED")
 
+    if evaluation_summary:
+        selected = evaluation_summary.get("selected_ml_metrics", {})
+        baseline = evaluation_summary.get("baseline_metrics", {})
+        x1, x2, x3 = st.columns(3)
+        x1.metric("Selected model WAPE", f"{selected.get('WAPE_percent', 14.04):.2f}%")
+        x2.metric("Selected model MAE", fmt_number(selected.get("MAE", 35.68), 2))
+        x3.metric("Baseline WAPE", f"{baseline.get('WAPE_percent', 22.73):.2f}%")
+        st.info("The saved validation report identifies XGBoost as the best evaluated model. These are historical validation metrics, not a guarantee of future performance.")
+
+    if history is not None and date_col and sales_col:
+        daily = history.dropna(subset=[date_col]).groupby(date_col, as_index=False)[sales_col].sum().sort_values(date_col)
+        fig = px.line(daily, x=date_col, y=sales_col, title="Historical daily sales", labels={date_col: "Date", sales_col: "Sales"})
+        fig.update_layout(hovermode="x unified")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("Historical CSV not found. Add `dataset/processed/sales_clean.csv` to enable historical charts.")
+
+    if inventory_summary:
+        st.subheader("Inventory planning snapshot")
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Forecasted 7-day demand", fmt_number(inventory_summary.get("total_predicted_demand_next_7_days"), 0))
+        k2.metric("Simulated current stock", fmt_number(inventory_summary.get("simulated_total_current_stock"), 0))
+        k3.metric("Suggested order quantity", fmt_number(inventory_summary.get("total_suggested_order_quantity"), 0))
+        k4.metric("High + critical items", fmt_number(inventory_summary.get("critical_items", 0) + inventory_summary.get("high_risk_items", 0)))
+        st.caption("These inventory values come from the project's simulation assumptions; they are not real inventory counts.")
+
+elif page == "Demand Forecasts":
+    st.subheader("Demand forecast explorer")
+    if forecast is None:
+        st.warning("Forecast CSV not found. Expected `forecasts/demand_forecast_7_days.csv`. The rest of the dashboard can still run.")
+        st.code("forecasts/demand_forecast_7_days.csv")
+    else:
+        st.success(f"Loaded {len(forecast):,} forecast rows from `{forecast_path.relative_to(PROJECT_DIR) if forecast_path.is_relative_to(PROJECT_DIR) else forecast_path.name}`")
+        f_date = find_col(forecast, ["date", "forecast_date", "ds"])
+        f_store = find_col(forecast, ["store_nbr", "store", "store_id"])
+        f_family = find_col(forecast, ["family", "product_family", "category"])
+        f_pred = find_col(forecast, ["predicted_sales", "forecast_sales", "forecast_demand", "predicted_demand", "yhat", "prediction", "sales"])
+        view = forecast.copy()
+        if f_date:
+            view[f_date] = pd.to_datetime(view[f_date], errors="coerce")
         c1, c2, c3 = st.columns(3)
-        c1.metric("Total forecast sales", money_or_number(total_predicted))
-        c2.metric("Average daily forecast", money_or_number(mean_daily))
-        c3.metric("Forecast records", f"{len(filtered_forecast):,}")
+        if f_store:
+            stores = sorted(view[f_store].dropna().astype(str).unique().tolist())
+            selected_stores = c1.multiselect("Store", stores, default=stores[:min(5, len(stores))])
+            if selected_stores:
+                view = view[view[f_store].astype(str).isin(selected_stores)]
+        if f_family:
+            families = sorted(view[f_family].dropna().astype(str).unique().tolist())
+            selected_families = c2.multiselect("Product family", families, default=families)
+            if selected_families:
+                view = view[view[f_family].astype(str).isin(selected_families)]
+        if f_date:
+            date_values = view[f_date].dropna()
+            if not date_values.empty:
+                c3.caption(f"Forecast dates: {date_values.min().date()} to {date_values.max().date()}")
+        if f_pred:
+            pred = pd.to_numeric(view[f_pred], errors="coerce").clip(lower=0)
+            st.metric("Filtered predicted demand", fmt_number(pred.sum(), 0))
+            if f_date:
+                trend = view.assign(_pred=pd.to_numeric(view[f_pred], errors="coerce").clip(lower=0)).groupby(f_date, as_index=False)["_pred"].sum()
+                st.plotly_chart(px.line(trend, x=f_date, y="_pred", markers=True, title="Predicted demand by date"), use_container_width=True)
+            if f_family:
+                family_sum = view.assign(_pred=pd.to_numeric(view[f_pred], errors="coerce").clip(lower=0)).groupby(f_family, as_index=False)["_pred"].sum().sort_values("_pred", ascending=False).head(15)
+                st.plotly_chart(px.bar(family_sum, x="_pred", y=f_family, orientation="h", title="Top product families by forecast demand"), use_container_width=True)
+        st.dataframe(view, use_container_width=True, hide_index=True)
+        st.download_button("Download filtered forecasts (CSV)", view.to_csv(index=False).encode("utf-8"), "filtered_demand_forecasts.csv", "text/csv")
 
-        daily = (
-            filtered_forecast.groupby("forecast_date", as_index=False)
-            ["predicted_sales"].sum()
-        )
-
-        fig = px.line(
-            daily,
-            x="forecast_date",
-            y="predicted_sales",
-            markers=True,
-            title="Forecast demand over the next seven days"
-        )
-        dark_chart(fig, 430)
-
-        st.markdown("### Product-family demand")
-
-        family_demand = (
-            filtered_forecast.groupby("family", as_index=False)
-            ["predicted_sales"].sum()
-            .sort_values("predicted_sales", ascending=False)
-            .head(15)
-        )
-
-        fig = px.bar(
-            family_demand.sort_values("predicted_sales"),
-            x="predicted_sales",
-            y="family",
-            orientation="h",
-            title="Top product families by predicted demand"
-        )
-        dark_chart(fig, 480)
-
-        st.markdown("### Forecast records")
-        st.dataframe(
-            filtered_forecast.sort_values(
-                ["forecast_date", "store_nbr", "family"]
-            ),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        display_download(
-            filtered_forecast,
-            "filtered_demand_forecast.csv",
-            "⬇️ Download filtered forecast CSV"
-        )
-
-# ---------------------------------------------------------------------------
-# INVENTORY OPTIMIZATION
-# ---------------------------------------------------------------------------
-
-elif page == "Inventory Optimization":
-
-    show_hero(
-        "Inventory Optimization",
-        "Review simulated stock, reorder points, and suggested order quantities."
-    )
-
-    show_inventory_warning()
-
-    if filtered_inventory.empty:
-        st.warning("No inventory records match the selected filters.")
+elif page == "Inventory Optimizer":
+    st.subheader("Inventory risk and replenishment")
+    if inventory is None:
+        st.warning("Inventory recommendation CSV not found. Expected `forecasts/inventory_optimization_recommendations.csv`.")
     else:
-        total_order = filtered_inventory[
-            "suggested_order_quantity"
-        ].sum()
+        inv = inventory.copy()
+        risk_col = find_col(inv, ["risk_level", "inventory_risk", "risk"])
+        store_inv = find_col(inv, ["store_nbr", "store", "store_id"])
+        family_inv = find_col(inv, ["family", "product_family", "category"])
+        order_col = find_col(inv, ["suggested_order_quantity", "order_quantity", "recommended_order_qty", "reorder_qty"])
+        stock_col = find_col(inv, ["simulated_current_stock", "current_stock", "stock_on_hand", "inventory"])
+        demand_col = find_col(inv, ["forecast_demand", "predicted_demand", "forecast_sales", "total_forecast_demand", "demand"])
+        c1, c2 = st.columns(2)
+        if risk_col:
+            risks = sorted(inv[risk_col].dropna().astype(str).unique())
+            selected_risks = c1.multiselect("Risk level", risks, default=risks)
+            if selected_risks:
+                inv = inv[inv[risk_col].astype(str).isin(selected_risks)]
+        if store_inv:
+            stores = sorted(inv[store_inv].dropna().astype(str).unique())
+            selected_stores = c2.multiselect("Store", stores, default=stores)
+            if selected_stores:
+                inv = inv[inv[store_inv].astype(str).isin(selected_stores)]
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Items in current view", fmt_number(len(inv)))
+        k2.metric("Suggested order quantity", fmt_number(pd.to_numeric(inv[order_col], errors="coerce").sum() if order_col else np.nan))
+        k3.metric("Forecast demand", fmt_number(pd.to_numeric(inv[demand_col], errors="coerce").sum() if demand_col else np.nan))
+        if risk_col:
+            risk_counts = inv[risk_col].astype(str).value_counts().rename_axis("Risk level").reset_index(name="Items")
+            st.plotly_chart(px.bar(risk_counts, x="Risk level", y="Items", color="Risk level", title="Items by inventory risk"), use_container_width=True)
+        if family_inv and order_col:
+            top_orders = inv.copy()
+            top_orders[order_col] = pd.to_numeric(top_orders[order_col], errors="coerce")
+            top_orders = top_orders.groupby(family_inv, as_index=False)[order_col].sum().sort_values(order_col, ascending=False).head(15)
+            st.plotly_chart(px.bar(top_orders, x=order_col, y=family_inv, orientation="h", title="Product families with highest suggested order quantities"), use_container_width=True)
+        if stock_col and demand_col:
+            st.caption("Stock-versus-demand comparison uses the available columns in the saved inventory file.")
+            fig = px.scatter(inv, x=demand_col, y=stock_col, color=risk_col if risk_col else None, hover_data=[c for c in [store_inv, family_inv] if c])
+            st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(inv, use_container_width=True, hide_index=True)
+        st.download_button("Download filtered inventory recommendations (CSV)", inv.to_csv(index=False).encode("utf-8"), "filtered_inventory_recommendations.csv", "text/csv")
+        st.warning("Research limitation: stock, lead time, and risk are simulated using configured assumptions. Do not use as real purchase orders without actual inventory and supplier data.")
 
-        critical = (
-            filtered_inventory["inventory_risk"] == "Critical"
-        ).sum()
-
-        high = (
-            filtered_inventory["inventory_risk"] == "High"
-        ).sum()
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Suggested order quantity", money_or_number(total_order))
-        c2.metric("Critical combinations", f"{critical:,}")
-        c3.metric("High-risk combinations", f"{high:,}")
-
-        st.markdown("### Inventory recommendations")
-
-        display_cols = [
-            "store_nbr",
-            "family",
-            "forecast_demand_next_7_days",
-            "simulated_current_stock",
-            "expected_lead_time_demand",
-            "estimated_safety_stock",
-            "estimated_reorder_point",
-            "estimated_target_stock",
-            "suggested_order_quantity",
-            "inventory_risk",
-            "reorder_recommended"
+elif page == "Model Evaluation":
+    st.subheader("Model performance and validation")
+    if evaluation_summary:
+        selected = evaluation_summary.get("selected_ml_metrics", {})
+        baseline = evaluation_summary.get("baseline_metrics", {})
+        rows = [
+            {"Model": evaluation_summary.get("selected_ml_model", "XGBoost"), "MAE": selected.get("MAE"), "RMSE": selected.get("RMSE"), "WAPE (%)": selected.get("WAPE_percent")},
+            {"Model": "Seasonal Naive baseline", "MAE": baseline.get("MAE"), "RMSE": baseline.get("RMSE"), "WAPE (%)": baseline.get("WAPE_percent")},
         ]
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.markdown(f"**Validation period:** {evaluation_summary.get('validation_start', 'N/A')} to {evaluation_summary.get('validation_end', 'N/A')}")
+        st.markdown(f"**Validation records:** {fmt_number(evaluation_summary.get('validation_records'))}")
+        st.markdown(f"**Method:** {evaluation_summary.get('validation_method', 'See project evaluation report.')}")
+        if selected.get("WAPE_percent") and baseline.get("WAPE_percent"):
+            improvement = (baseline["WAPE_percent"] - selected["WAPE_percent"]) / baseline["WAPE_percent"] * 100
+            st.metric("WAPE improvement over baseline", f"{improvement:.1f}%")
+    if metrics is not None:
+        st.subheader("Saved model comparison file")
+        st.dataframe(metrics, use_container_width=True, hide_index=True)
+        wape_col = find_col(metrics, ["wape_percent", "wape"])
+        model_col = find_col(metrics, ["model", "model_name", "algorithm"])
+        if wape_col and model_col:
+            plot_df = metrics.copy()
+            plot_df[wape_col] = pd.to_numeric(plot_df[wape_col], errors="coerce")
+            st.plotly_chart(px.bar(plot_df, x=model_col, y=wape_col, title="Model comparison by WAPE (lower is better)"), use_container_width=True)
+    st.info("Validation metrics are based on a rolling one-day-ahead evaluation. A time-aware validation strategy is more suitable for forecasting than a random train/test split.")
 
-        display_cols = [
-            c for c in display_cols if c in filtered_inventory.columns
-        ]
-
-        st.dataframe(
-            filtered_inventory[display_cols],
-            use_container_width=True,
-            hide_index=True
-        )
-
-        display_download(
-            filtered_inventory,
-            "filtered_inventory_recommendations.csv",
-            "⬇️ Download inventory recommendations"
-        )
-
-        st.markdown("### Order quantity by inventory risk")
-
-        fig = px.box(
-            filtered_inventory,
-            x="inventory_risk",
-            y="suggested_order_quantity",
-            color="inventory_risk",
-            title="Suggested order quantity distribution"
-        )
-        dark_chart(fig, 380)
-
-        st.markdown("### Items requiring the largest orders")
-
-        top = filtered_inventory.nlargest(
-            20, "suggested_order_quantity"
-        ).copy()
-
-        top["item"] = (
-            "Store " + top["store_nbr"].astype(str)
-            + " · " + top["family"]
-        )
-
-        fig = px.bar(
-            top.sort_values("suggested_order_quantity"),
-            x="suggested_order_quantity",
-            y="item",
-            orientation="h",
-            color="inventory_risk",
-            title="Top 20 suggested order quantities"
-        )
-        dark_chart(fig, 600)
-
-# ---------------------------------------------------------------------------
-# STORE ANALYSIS
-# ---------------------------------------------------------------------------
-
-elif page == "Store Analysis":
-
-    show_hero(
-        "Store Performance Analysis",
-        "Compare predicted demand and simulated inventory recommendations across stores."
-    )
-
-    if filtered_forecast.empty:
-        st.warning("No forecast data matches the selected filters.")
+elif page == "Store & Product Analytics":
+    st.subheader("Historical performance by store and product family")
+    if history is None or not sales_col:
+        st.warning("Add the cleaned historical CSV to enable this analysis.")
     else:
-        store_forecast = (
-            filtered_forecast.groupby("store_nbr", as_index=False)
-            ["predicted_sales"].sum()
-            .rename(columns={"predicted_sales": "forecast_demand_7_days"})
-        )
+        filtered = history.copy()
+        c1, c2 = st.columns(2)
+        if store_col:
+            stores = sorted(filtered[store_col].dropna().astype(str).unique())
+            selected_stores = c1.multiselect("Stores", stores, default=stores[:min(10, len(stores))])
+            if selected_stores:
+                filtered = filtered[filtered[store_col].astype(str).isin(selected_stores)]
+        if family_col:
+            families = sorted(filtered[family_col].dropna().astype(str).unique())
+            selected_families = c2.multiselect("Product families", families, default=families)
+            if selected_families:
+                filtered = filtered[filtered[family_col].astype(str).isin(selected_families)]
+        if family_col:
+            fam = filtered.groupby(family_col, as_index=False)[sales_col].sum().sort_values(sales_col, ascending=False).head(20)
+            st.plotly_chart(px.bar(fam, x=sales_col, y=family_col, orientation="h", title="Top product families by historical sales"), use_container_width=True)
+        if store_col:
+            store_sales = filtered.groupby(store_col, as_index=False)[sales_col].sum().sort_values(sales_col, ascending=False)
+            st.plotly_chart(px.bar(store_sales, x=store_col, y=sales_col, title="Historical sales by store"), use_container_width=True)
+        if date_col:
+            daily = filtered.groupby(date_col, as_index=False)[sales_col].sum().sort_values(date_col)
+            st.plotly_chart(px.line(daily, x=date_col, y=sales_col, title="Filtered sales trend"), use_container_width=True)
+        if promotion_col:
+            filtered["_promotion_flag"] = pd.to_numeric(filtered[promotion_col], errors="coerce").fillna(0).gt(0).map({True: "Promotion records", False: "No promotion"})
+            promo = filtered.groupby("_promotion_flag", as_index=False)[sales_col].mean()
+            st.plotly_chart(px.bar(promo, x="_promotion_flag", y=sales_col, title="Average sales by promotion-record status"), use_container_width=True)
+        st.dataframe(filtered.head(1000), use_container_width=True, hide_index=True)
+        st.caption("Promotion association is descriptive only; it does not establish causal impact.")
 
-        store_inventory = (
-            filtered_inventory.groupby("store_nbr", as_index=False)
-            .agg(
-                suggested_order_quantity=(
-                    "suggested_order_quantity", "sum"
-                ),
-                simulated_current_stock=(
-                    "simulated_current_stock", "sum"
-                ),
-                critical_items=(
-                    "inventory_risk",
-                    lambda x: int((x == "Critical").sum())
-                )
-            )
-        )
-
-        store_view = store_forecast.merge(
-            store_inventory,
-            on="store_nbr",
-            how="left"
-        ).fillna(0)
-
-        fig = px.bar(
-            store_view.sort_values("forecast_demand_7_days"),
-            x="store_nbr",
-            y="forecast_demand_7_days",
-            title="Seven-day predicted demand by store"
-        )
-        dark_chart(fig, 430)
-
-        fig = px.scatter(
-            store_view,
-            x="forecast_demand_7_days",
-            y="suggested_order_quantity",
-            size="critical_items",
-            hover_name="store_nbr",
-            title="Forecast demand versus suggested order quantity",
-            labels={
-                "forecast_demand_7_days": "7-day forecast demand",
-                "suggested_order_quantity": "Suggested order quantity",
-                "store_nbr": "Store"
-            }
-        )
-        dark_chart(fig, 430)
-
-        st.dataframe(
-            store_view.sort_values(
-                "forecast_demand_7_days", ascending=False
-            ),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        display_download(
-            store_view,
-            "store_analysis.csv",
-            "⬇️ Download store analysis"
-        )
-
-# ---------------------------------------------------------------------------
-# PRODUCT ANALYSIS
-# ---------------------------------------------------------------------------
-
-elif page == "Product Analysis":
-
-    show_hero(
-        "Product Family Analysis",
-        "Identify product families with high forecast demand and simulated inventory risk."
-    )
-
-    if filtered_forecast.empty:
-        st.warning("No forecast data matches the selected filters.")
+elif page == "Data Quality & Explorer":
+    st.subheader("Dataset checks")
+    if history is None:
+        st.error("Historical dataset not found.")
     else:
-        family_forecast = (
-            filtered_forecast.groupby("family", as_index=False)
-            ["predicted_sales"].sum()
-            .rename(columns={"predicted_sales": "forecast_demand_7_days"})
-        )
+        q1, q2, q3, q4 = st.columns(4)
+        q1.metric("Rows", fmt_number(len(history)))
+        q2.metric("Columns", fmt_number(len(history.columns)))
+        q3.metric("Duplicate rows", fmt_number(history.duplicated().sum()))
+        q4.metric("Missing cells", fmt_number(int(history.isna().sum().sum())))
+        if date_col:
+            q5, q6 = st.columns(2)
+            q5.metric("First date", str(history[date_col].min().date()) if history[date_col].notna().any() else "—")
+            q6.metric("Last date", str(history[date_col].max().date()) if history[date_col].notna().any() else "—")
+        st.subheader("Missing values by column")
+        missing = history.isna().sum().rename("Missing values").reset_index(names="Column")
+        st.dataframe(missing, use_container_width=True, hide_index=True)
+        if sales_col:
+            negative_count = int((pd.to_numeric(history[sales_col], errors="coerce") < 0).sum())
+            st.metric("Negative sales records", fmt_number(negative_count))
+        st.subheader("Preview")
+        st.dataframe(history.head(500), use_container_width=True, hide_index=True)
+        st.download_button("Download loaded historical data", history.to_csv(index=False).encode("utf-8"), "historical_data_preview.csv", "text/csv")
+        st.caption("The full dataset is not embedded in this application output; this page reads the CSV committed to the repository.")
 
-        family_inventory = (
-            filtered_inventory.groupby("family", as_index=False)
-            .agg(
-                suggested_order_quantity=(
-                    "suggested_order_quantity", "sum"
-                ),
-                simulated_current_stock=(
-                    "simulated_current_stock", "sum"
-                ),
-                critical_items=(
-                    "inventory_risk",
-                    lambda x: int((x == "Critical").sum())
-                ),
-                high_risk_items=(
-                    "inventory_risk",
-                    lambda x: int((x == "High").sum())
-                )
-            )
-        )
+else:
+    st.subheader("Research methodology, assumptions, and limitations")
+    st.markdown("""
+    **Workflow**
+    1. Clean and validate the historical retail sales data.
+    2. Engineer calendar features, store/product categorical features, lag features (7, 14, 28 days), and rolling statistics.
+    3. Compare seasonal-naive, Random Forest, and XGBoost models.
+    4. Evaluate with a time-aware rolling one-day-ahead validation window.
+    5. Produce a 7-day demand forecast and inventory recommendations.
+    """)
+    st.markdown("**Known project facts from saved reports**")
+    st.write({
+        "Cleaned rows": eda_summary.get("cleaned_rows", 1084847),
+        "Stores": eda_summary.get("number_of_stores", 54),
+        "Product families": eda_summary.get("number_of_product_families", 33),
+        "Historical dates": f"{eda_summary.get('first_date', '2013-01-01')} to {eda_summary.get('last_date', '2014-09-02')}",
+        "Selected model": evaluation_summary.get("selected_ml_model", "XGBoost"),
+        "Validation WAPE (%)": evaluation_summary.get("selected_ml_metrics", {}).get("WAPE_percent", 14.0428),
+        "Forecast dates in saved output": f"{inventory_summary.get('forecast_start_date', '2014-09-03')} to {inventory_summary.get('forecast_end_date', '2014-09-09')}",
+        "Inventory simulated": inventory_summary.get("inventory_is_simulated", True),
+    })
+    st.warning("Important: the saved forecast dates are in September 2014 because the underlying dataset ends on 2014-09-02. This is a historical research forecast, not a forecast for the current date.")
+    st.markdown("""
+    **Limitations**
+    - The dataset does not contain actual stock-on-hand, supplier lead times, stockout history, or future promotions.
+    - Inventory levels and reorder suggestions are simulated using documented assumptions.
+    - Missing daily records were reindexed and filled with zero; this assumes an absent record means zero sales and may not always be true.
+    - The saved forecast is historical because the dataset ends in 2014.
+    - Model artifacts must be loaded with a compatible scikit-learn environment; do not retrain or replace them without recording a new experiment and comparing results.
+    """)
 
-        family_view = family_forecast.merge(
-            family_inventory,
-            on="family",
-            how="left"
-        ).fillna(0)
-
-        fig = px.bar(
-            family_view.sort_values("forecast_demand_7_days"),
-            x="forecast_demand_7_days",
-            y="family",
-            orientation="h",
-            title="Predicted demand by product family"
-        )
-        dark_chart(fig, 650)
-
-        fig = px.scatter(
-            family_view,
-            x="forecast_demand_7_days",
-            y="suggested_order_quantity",
-            size="critical_items",
-            hover_name="family",
-            title="Product-family demand versus suggested orders"
-        )
-        dark_chart(fig, 450)
-
-        st.dataframe(
-            family_view.sort_values(
-                "forecast_demand_7_days", ascending=False
-            ),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        display_download(
-            family_view,
-            "product_family_analysis.csv",
-            "⬇️ Download product family analysis"
-        )
-
-# ---------------------------------------------------------------------------
-# DATA EXPLORER
-# ---------------------------------------------------------------------------
-
-elif page == "Data Explorer":
-
-    show_hero(
-        "Data Explorer",
-        "Inspect and export the saved model forecasts and inventory outputs."
-    )
-
-    dataset_choice = st.selectbox(
-        "Choose a dataset",
-        [
-            "Demand Forecasts",
-            "Inventory Recommendations",
-            "Store Inventory Summary",
-            "Inventory Risk Summary"
-        ]
-    )
-
-    dataset_map = {
-        "Demand Forecasts": forecast,
-        "Inventory Recommendations": inventory,
-        "Store Inventory Summary": stores,
-        "Inventory Risk Summary": risk_summary
-    }
-
-    chosen_df = dataset_map[dataset_choice]
-
-    if chosen_df.empty:
-        st.warning("The selected dataset is empty or unavailable.")
-    else:
-        st.caption(
-            f"{len(chosen_df):,} rows · {len(chosen_df.columns)} columns"
-        )
-
-        search_text = st.text_input(
-            "Search visible data",
-            placeholder="Enter a store number, family, or risk level..."
-        )
-
-        display_df = chosen_df.copy()
-
-        if search_text.strip():
-            mask = display_df.astype(str).apply(
-                lambda col: col.str.contains(
-                    search_text, case=False, na=False
-                )
-            ).any(axis=1)
-
-            display_df = display_df[mask]
-
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        display_download(
-            display_df,
-            "dashboard_data_export.csv",
-            "⬇️ Download selected dataset"
-        )
-
-    st.markdown("### Project summary")
-
-    if summary:
-        st.json(summary)
-
-    st.markdown("### Methodology notes")
-    st.write(
-        "- Forecasts are generated from the previously trained model."
-    )
-    st.write(
-        "- The forecast horizon is seven days, using recursive predictions."
-    )
-    st.write(
-        "- Missing historical dates were filled with zero sales in Part 4."
-    )
-    st.write(
-        "- Future promotions are assumed to be zero."
-    )
-    st.write(
-        "- Inventory levels and order quantities are simulated."
-    )
-    st.write(
-        "- Lead time, review period, and safety stock calculations are assumptions."
-    )
-
-# ---------------------------------------------------------------------------
-# FOOTER
-# ---------------------------------------------------------------------------
-
-st.markdown("---")
-st.markdown(
-    """
-    <p class="small-muted">
-    AI-Powered Demand Forecasting and Inventory Optimization System |
-    Research Prototype | Machine Learning + Streamlit + Plotly
-    </p>
-    """,
-    unsafe_allow_html=True
-)
+st.divider()
+st.caption("MCA research prototype • Reproducible outputs • Historical forecast dates and simulated inventory are explicitly labelled")
