@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from datetime import datetime
 import traceback
+from io import BytesIO
 
 # ============================================================
 # Demand Intelligence — MCA Research Dashboard
@@ -120,6 +121,56 @@ def read_table(path):
         return pd.read_csv(p, low_memory=False)
     except Exception:
         return pd.DataFrame()
+
+
+def normalize_sales_schema(frame):
+    """Normalize common names into the columns required by the forecast engine."""
+    if frame is None or frame.empty:
+        return pd.DataFrame()
+    df = frame.copy()
+    df.columns = [str(c).strip().lower() for c in df.columns]
+    aliases = {
+        "date": ["date", "datetime", "ds", "sales_date"],
+        "store_nbr": ["store_nbr", "store", "store_id", "store_number"],
+        "family": ["family", "product_family", "product", "category"],
+        "sales": ["sales", "units_sold", "quantity", "demand", "target"],
+    }
+    rename = {}
+    for target, candidates in aliases.items():
+        if target not in df.columns:
+            match = next((c for c in candidates if c in df.columns), None)
+            if match:
+                rename[match] = target
+    if rename:
+        df = df.rename(columns=rename)
+    required = {"date", "store_nbr", "family", "sales"}
+    if not required.issubset(df.columns):
+        return pd.DataFrame()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["store_nbr"] = pd.to_numeric(df["store_nbr"], errors="coerce")
+    df["sales"] = pd.to_numeric(df["sales"], errors="coerce")
+    df["family"] = df["family"].astype(str).str.strip()
+    df = df.dropna(subset=["date", "store_nbr", "family", "sales"])
+    df = df[df["family"].ne("")]
+    if df.empty:
+        return pd.DataFrame()
+    return df
+
+
+def load_sales_from_project():
+    """Search common project layouts, including root-level fallback files."""
+    candidates = [
+        DATASET / "sales_clean.parquet", DATASET / "sales_clean.csv",
+        BASE / "dataset" / "sales_clean.parquet", BASE / "dataset" / "sales_clean.csv",
+        BASE / "sales_clean.parquet", BASE / "sales_clean.csv",
+        BASE / "data" / "sales_clean.parquet", BASE / "data" / "sales_clean.csv",
+    ]
+    for candidate in candidates:
+        frame = read_table(candidate)
+        normalized = normalize_sales_schema(frame)
+        if not normalized.empty:
+            return normalized, str(candidate.relative_to(BASE))
+    return pd.DataFrame(), "not found"
 
 
 def normalize_model_name(value):
@@ -285,8 +336,14 @@ if metrics.empty:
 else:
     metrics_source = "saved_report"
 
-clean_data = read_table(DATASET / "sales_clean.parquet")
-if clean_data.empty: clean_data = read_table(DATASET / "sales_clean.csv")
+clean_data, clean_data_source = load_sales_from_project()
+# A user-uploaded file is stored only in the active Streamlit session; it does not
+# change the GitHub repository or overwrite project files.
+if isinstance(st.session_state.get("uploaded_sales_data"), pd.DataFrame):
+    uploaded_frame = normalize_sales_schema(st.session_state["uploaded_sales_data"])
+    if not uploaded_frame.empty:
+        clean_data = uploaded_frame
+        clean_data_source = "uploaded file (current session)"
 features_data = read_table(DATASET / "modeling_features.parquet")
 if features_data.empty: features_data = read_table(DATASET / "modeling_features.csv")
 config = read_json(CONFIG / "inventory_config.json")
@@ -439,13 +496,40 @@ if page == "Executive Overview":
 elif page == "Demand Forecasting":
     hero("Demand Forecasting", "Explore saved forecasts or generate a new horizon using a compatible saved model.")
     st.markdown("### Generate a forecast")
-    with st.expander("Forecast controls", expanded=False):
+    with st.expander("Forecast controls", expanded=True):
         model_choice = st.selectbox("Forecast model", ["XGBoost", "Random Forest", "Seasonal Naive"], index=0, key="forecast_model_choice")
         horizon_choice = st.slider("Forecast horizon (days)", 1, 28, 7, key="forecast_horizon_choice")
         st.caption("Future promotions are assumed to be zero. A generated forecast is kept in this session until downloaded; it does not overwrite your committed forecast CSV.")
+        st.markdown("#### Historical sales data")
+        if not clean_data.empty:
+            st.success(f"Historical data loaded: {len(clean_data):,} rows · source: {clean_data_source}")
+        else:
+            st.warning("The Streamlit deployment cannot see your local Google Drive or Colab files. Upload the cleaned sales dataset below, or commit it under dataset/processed/ in the GitHub repository.")
+        uploaded_sales_file = st.file_uploader(
+            "Upload sales_clean.csv or sales_clean.parquet",
+            type=["csv", "parquet"],
+            key="sales_history_upload",
+            help="Expected columns: date, store_nbr, family, sales. The file is used for this active app session only."
+        )
+        if uploaded_sales_file is not None:
+            try:
+                if uploaded_sales_file.name.lower().endswith(".parquet"):
+                    uploaded_frame = pd.read_parquet(BytesIO(uploaded_sales_file.getvalue()))
+                else:
+                    uploaded_frame = pd.read_csv(BytesIO(uploaded_sales_file.getvalue()), low_memory=False)
+                uploaded_frame = normalize_sales_schema(uploaded_frame)
+                if uploaded_frame.empty:
+                    st.error("The uploaded file could not be recognized. It must contain date, store_nbr, family, and sales columns (common aliases are supported).")
+                else:
+                    st.session_state["uploaded_sales_data"] = uploaded_frame
+                    clean_data = uploaded_frame
+                    clean_data_source = f"uploaded {uploaded_sales_file.name}"
+                    st.success(f"Loaded {len(clean_data):,} rows from {uploaded_sales_file.name}.")
+            except Exception as upload_exc:
+                st.error(f"Could not read uploaded file: {type(upload_exc).__name__}: {upload_exc}")
         if st.button("Generate forecast with selected model", type="primary", key="generate_forecast_btn"):
             if clean_data.empty:
-                st.error("Historical dataset is unavailable. Add dataset/processed/sales_clean.parquet or sales_clean.csv.")
+                st.error("Historical dataset is unavailable. Upload sales_clean.csv/parquet above, or add it to dataset/processed/ in the GitHub repository and redeploy.")
             else:
                 with st.spinner("Preparing historical series and generating predictions…"):
                     try:
