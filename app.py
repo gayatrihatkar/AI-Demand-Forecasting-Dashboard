@@ -238,7 +238,9 @@ def available_forecast_models():
     for name in ("XGBoost", "Random Forest"):
         if any(path.is_file() for path in model_artifact_candidates(name)):
             available.append(name)
-    available.append("Seasonal Naive")
+    # Statistical baselines need no serialized .joblib artifact and are valid
+    # selectable forecasting methods for uploaded historical sales.
+    available.extend(["Seasonal Naive", "7-Day Moving Average", "Last Observation"])
     return available
 
 
@@ -260,7 +262,8 @@ def generate_forecast(history_df, model_name, horizon, model_config):
         "store_nbr", "family", "year", "month", "day", "day_of_week", "day_of_year", "week_of_year", "is_weekend", "onpromotion", "sales_lag_7", "sales_lag_14", "sales_lag_28", "sales_rolling_mean_7", "sales_rolling_mean_28", "sales_rolling_std_7"
     ])
     estimator = None
-    if model_name != "Seasonal Naive":
+    baseline_models = {"Seasonal Naive", "7-Day Moving Average", "Last Observation"}
+    if model_name not in baseline_models:
         try:
             import joblib
         except Exception as exc:
@@ -291,6 +294,10 @@ def generate_forecast(history_df, model_name, horizon, model_config):
         keys = list(histories.keys())
         if model_name == "Seasonal Naive":
             preds = [max(0.0, float(histories[k][-7] if len(histories[k]) >= 7 else histories[k][-1])) for k in keys]
+        elif model_name == "7-Day Moving Average":
+            preds = [max(0.0, float(np.mean(histories[k][-7:]))) if histories[k] else 0.0 for k in keys]
+        elif model_name == "Last Observation":
+            preds = [max(0.0, float(histories[k][-1])) if histories[k] else 0.0 for k in keys]
         else:
             rows = [make_features(histories[k], target_date, k[0], k[1], promotion=0) for k in keys]
             X = pd.DataFrame([{c: row.get(c, 0) for c in feature_columns} for row in rows], columns=feature_columns)
@@ -305,6 +312,47 @@ def generate_forecast(history_df, model_name, horizon, model_config):
             output.append({"forecast_date": target_date, "store_nbr": key[0], "family": key[1], "predicted_sales": pred, "model_used": model_name, "forecast_generated_at": datetime.now().isoformat(timespec="seconds"), "onpromotion_assumption": 0})
             histories[key].append(pred)
     return pd.DataFrame(output)
+
+def calculate_seasonal_naive_error_breakdowns(history_df, validation_days=28):
+    """Calculate measured store/family WAPE from held-out historical days.
+
+    Uses y(t-7) as the prediction for each actual day, so these are explicit
+    seasonal-naive diagnostics, not claimed XGBoost/Random Forest metrics.
+    """
+    required = {"date", "store_nbr", "family", "sales"}
+    if history_df is None or history_df.empty or not required.issubset(history_df.columns):
+        return pd.DataFrame(), pd.DataFrame()
+    d = history_df[list(required)].copy()
+    d["date"] = pd.to_datetime(d["date"], errors="coerce")
+    d["sales"] = pd.to_numeric(d["sales"], errors="coerce")
+    d["store_nbr"] = pd.to_numeric(d["store_nbr"], errors="coerce")
+    d = d.dropna(subset=["date", "sales", "store_nbr", "family"])
+    d = d.groupby(["store_nbr", "family", "date"], as_index=False)["sales"].sum()
+    if d.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    last_date = d["date"].max().normalize()
+    first_date = last_date - pd.Timedelta(days=max(1, int(validation_days)) - 1)
+    # Build complete daily series to make missing dates explicit zero-sales days.
+    rows = []
+    for (store, family), g in d.groupby(["store_nbr", "family"], sort=False):
+        g = g.set_index("date")["sales"].sort_index()
+        full_idx = pd.date_range(g.index.min().normalize(), last_date, freq="D")
+        series = g.reindex(full_idx, fill_value=0.0)
+        for dt in pd.date_range(max(first_date, full_idx.min()), last_date, freq="D"):
+            prior = dt - pd.Timedelta(days=7)
+            pred = float(series.get(prior, np.nan))
+            actual = float(series.get(dt, 0.0))
+            if np.isfinite(pred):
+                rows.append({"store_nbr": store, "family": family, "date": dt, "actual_sales": actual, "predicted_sales": max(0.0, pred), "absolute_error": abs(actual-pred)})
+    val = pd.DataFrame(rows)
+    if val.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    def wape_group(keys):
+        out = val.groupby(keys, as_index=False).agg(absolute_error_sum=("absolute_error", "sum"), actual_sales_sum=("actual_sales", "sum"), observations=("actual_sales", "size"))
+        out["WAPE_percent"] = np.where(out["actual_sales_sum"] > 0, 100*out["absolute_error_sum"]/out["actual_sales_sum"], np.nan)
+        return out.sort_values("WAPE_percent", ascending=False, na_position="last")
+    return wape_group(["store_nbr"]), wape_group(["family"])
+
 
 def calculate_inventory_scenario(forecast_df, historical_df, lead_days=3, review_days=7, service_z=1.65, stock_cover_days=3.0, min_order=0, pack_size=1):
     """Transparent scenario calculator; stock is simulated unless user provides actual values."""
@@ -387,11 +435,29 @@ if features_data.empty: features_data = read_table(DATASET / "modeling_features.
 config = read_json(CONFIG / "inventory_config.json")
 model_config = read_json(CONFIG / "model_config.json")
 
-if forecast.empty or inventory.empty:
-    st.error("Required forecast or inventory output files are missing.")
-    st.markdown("Expected files: `forecasts/demand_forecast_7_days.csv` and `forecasts/inventory_optimization_recommendations.csv`.")
-    st.info("Keep the existing project folders beside app.py. Run the forecasting notebook's output-generation step and commit the CSV files to GitHub.")
+# Prefer a forecast explicitly generated in this active session; otherwise retain saved project outputs.
+_session_forecast = st.session_state.get("generated_forecast_df")
+if isinstance(_session_forecast, pd.DataFrame) and not _session_forecast.empty:
+    forecast = _session_forecast.copy()
+_session_inventory = st.session_state.get("generated_inventory_df")
+if isinstance(_session_inventory, pd.DataFrame) and not _session_inventory.empty:
+    inventory = _session_inventory.copy()
+# If forecasts exist but no inventory CSV was deployed, derive clearly simulated recommendations.
+if inventory.empty and not forecast.empty and not clean_data.empty:
+    try:
+        inventory = calculate_inventory_scenario(forecast, clean_data)
+        if not inventory.empty:
+            st.session_state["derived_inventory_notice"] = True
+    except Exception:
+        inventory = pd.DataFrame()
+
+if forecast.empty:
+    st.error("No saved forecast is available yet. Open Demand Forecasting, upload historical sales, and generate a forecast.")
+    st.info("Your original project files have not been changed. Saved forecast outputs can be added under forecasts/ when available.")
     st.stop()
+if inventory.empty:
+    # Continue to allow forecast exploration even if inventory output cannot yet be derived.
+    inventory = pd.DataFrame(columns=["store_nbr", "family", "inventory_risk", "suggested_order_quantity"])
 
 # Normalize fields
 if "forecast_date" in forecast:
@@ -420,6 +486,11 @@ all_stores = sorted(inventory["store_nbr"].dropna().unique().tolist()) if "store
 all_families = sorted(inventory["family"].dropna().unique().tolist()) if "family" in inventory else []
 risk_order = ["Critical","High","Medium","Low"]
 all_risks = [r for r in risk_order if r in inventory.get("inventory_risk", pd.Series(dtype=str)).unique()]
+# If session data changed (e.g. a sample CSV was uploaded), repair stale global filters.
+for _key, _valid in (("stores_filter", all_stores), ("families_filter", all_families), ("risk_filter", all_risks)):
+    if _key in st.session_state:
+        _kept = [v for v in st.session_state[_key] if v in _valid]
+        st.session_state[_key] = _kept if _kept else list(_valid)
 with st.sidebar:
     # Visual-only sidebar branding; dashboard data and feature logic remain unchanged.
     st.markdown("""
@@ -470,8 +541,15 @@ if page == "Executive Overview":
 selected_stores = [x for x in st.session_state["stores_filter"] if x in all_stores]
 selected_families = [x for x in st.session_state["families_filter"] if x in all_families]
 selected_risks = [x for x in st.session_state["risk_filter"] if x in all_risks]
-fi = inventory[inventory["store_nbr"].isin(selected_stores) & inventory["family"].isin(selected_families) & inventory["inventory_risk"].isin(selected_risks)].copy()
-ff = forecast[forecast["store_nbr"].isin(selected_stores) & forecast["family"].isin(selected_families)].copy()
+if {"store_nbr", "family", "inventory_risk"}.issubset(inventory.columns):
+    fi = inventory[inventory["store_nbr"].isin(selected_stores) & inventory["family"].isin(selected_families) & inventory["inventory_risk"].isin(selected_risks)].copy()
+else:
+    fi = pd.DataFrame()
+ff = forecast.copy()
+if "store_nbr" in ff and selected_stores:
+    ff = ff[ff["store_nbr"].isin(selected_stores)]
+if "family" in ff and selected_families:
+    ff = ff[ff["family"].isin(selected_families)]
 if "forecast_date" in ff: ff = ff.dropna(subset=["forecast_date"])
 total_demand = ff["predicted_sales"].sum() if "predicted_sales" in ff else 0
 total_orders = fi["suggested_order_quantity"].sum() if "suggested_order_quantity" in fi else 0
@@ -662,8 +740,12 @@ elif page == "Demand Forecasting":
 elif page == "Inventory Optimizer":
     hero("Inventory Optimizer", "Prioritize replenishment using simulated stock, lead-time demand, safety stock and reorder-point assumptions.")
     note()
-    if fi.empty: st.warning("No inventory rows match the filters.")
-    else:
+    if fi.empty and not inventory.empty:
+        st.warning("The current filters returned no inventory rows. Showing all available inventory recommendations instead; adjust filters from Executive Overview to narrow the view.")
+        fi = inventory.copy()
+    elif fi.empty:
+        st.info("No inventory recommendation rows are available yet. Generate a forecast from historical sales, then calculate inventory recommendations on the Demand Forecasting page.")
+    if not fi.empty:
         a,b,c=st.columns(3); a.metric("Suggested order quantity",fmt(total_orders)); b.metric("Critical items",critical_count); c.metric("High-risk items",high_count)
         cols=[c for c in ["store_nbr","family","forecast_demand_next_7_days","simulated_current_stock","expected_lead_time_demand","estimated_safety_stock","estimated_reorder_point","estimated_target_stock","suggested_order_quantity","inventory_risk","reorder_recommended"] if c in fi]
         st.dataframe(fi[cols].sort_values("suggested_order_quantity",ascending=False),use_container_width=True,hide_index=True)
@@ -734,7 +816,10 @@ elif page == "What-if Simulator":
         if daily_col in sim:
             sim["scenario_stock"]=sim[daily_col].clip(lower=0)*stock_cover
             sim["scenario_lead_demand"]=sim[daily_col].clip(lower=0)*lead_days
-            sim["scenario_safety_stock"]=sim["scenario_lead_demand"]*safety_pct/100
+            if "historical_daily_sales_std" in sim.columns:
+                sim["scenario_safety_stock"] = float(safety_z) * pd.to_numeric(sim["historical_daily_sales_std"], errors="coerce").fillna(0).clip(lower=0) * np.sqrt(max(1, int(lead_days)))
+            else:
+                sim["scenario_safety_stock"] = sim["scenario_lead_demand"] * (float(safety_z) / 10.0)
             sim["scenario_reorder_point"]=sim["scenario_lead_demand"]+sim["scenario_safety_stock"]
             sim["scenario_target_stock"]=sim[daily_col].clip(lower=0)*(lead_days+7)+sim["scenario_safety_stock"]
             sim["scenario_order_qty"]=(sim["scenario_target_stock"]-sim["scenario_stock"]).clip(lower=0)
@@ -807,7 +892,13 @@ elif page == "Model Evaluation":
                     st.dataframe(store_errors.sort_values("WAPE_percent").head(10), use_container_width=True, hide_index=True)
                     chart(px.bar(store_errors.sort_values("WAPE_percent").head(15), x="store_nbr", y="WAPE_percent", title="Lowest WAPE stores (top 15 by rank)"), 320)
                 else:
-                    st.info("Store error analysis report is not available in this deployment.")
+                    calculated_store_errors, calculated_family_errors = calculate_seasonal_naive_error_breakdowns(clean_data)
+                    if not calculated_store_errors.empty:
+                        st.caption("Computed from the latest 28 historical dates using a one-week seasonal-naive baseline; this is not XGBoost/Random Forest performance.")
+                        st.dataframe(calculated_store_errors.sort_values("WAPE_percent").head(10), use_container_width=True, hide_index=True)
+                        chart(px.bar(calculated_store_errors.sort_values("WAPE_percent").head(15), x="store_nbr", y="WAPE_percent", title="Store WAPE — seasonal-naive historical diagnostic (lower is better)"), 320)
+                    else:
+                        st.info("Store-level WAPE needs enough historical dates to compare actual sales with sales from seven days earlier.")
             with fe:
                 st.markdown("#### Product-family WAPE")
                 if not family_errors.empty and {"family", "WAPE_percent"}.issubset(family_errors.columns):
@@ -816,7 +907,13 @@ elif page == "Model Evaluation":
                     st.dataframe(family_errors.sort_values("WAPE_percent", ascending=False).head(10), use_container_width=True, hide_index=True)
                     chart(px.bar(family_errors.sort_values("WAPE_percent", ascending=False).head(15), x="WAPE_percent", y="family", orientation="h", title="Highest WAPE product families (top 15)"), 420)
                 else:
-                    st.info("Product-family error analysis report is not available in this deployment.")
+                    calculated_store_errors, calculated_family_errors = calculate_seasonal_naive_error_breakdowns(clean_data)
+                    if not calculated_family_errors.empty:
+                        st.caption("Computed from the latest 28 historical dates using a one-week seasonal-naive baseline; this is not XGBoost/Random Forest performance.")
+                        st.dataframe(calculated_family_errors.sort_values("WAPE_percent", ascending=False).head(10), use_container_width=True, hide_index=True)
+                        chart(px.bar(calculated_family_errors.sort_values("WAPE_percent", ascending=False).head(15), x="WAPE_percent", y="family", orientation="h", title="Product-family WAPE — seasonal-naive historical diagnostic (higher is worse)"), 420)
+                    else:
+                        st.info("Product-family WAPE needs enough historical dates to compare actual sales with sales from seven days earlier.")
 
 # -------------------- STORE & PRODUCT ANALYTICS --------------------
 elif page == "Store & Product Analytics":
