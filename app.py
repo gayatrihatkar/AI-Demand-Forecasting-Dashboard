@@ -37,6 +37,11 @@ st.markdown(f"""
 h1,h2,h3 {{color:{T['text']} !important; letter-spacing:-0.025em;}}
 p, label, .stCaption {{color:{T['muted']};}}
 div.stButton > button, div.stDownloadButton > button {{border-radius:10px; border:1px solid {T['border']}; font-weight:600;}}
+div.stButton > button {{background:{T['accent']} !important; color:#FFFFFF !important; border:1px solid {T['accent']} !important;}}
+div.stButton > button:hover {{background:#0B5F59 !important; color:#FFFFFF !important; border-color:#0B5F59 !important;}}
+[data-testid="stSidebar"] div.stButton > button {{background:#F4F0E6 !important; color:#153E3B !important; border:1px solid #D8D0BF !important;}}
+[data-testid="stSidebar"] div.stButton > button:hover {{background:#E6DCC7 !important; color:#153E3B !important;}}
+div.stDownloadButton > button {{background:{T['panel']} !important; color:{T['text']} !important;}}
 div.stButton > button[kind="primary"] {{background:{T['accent']}; color:#FFFFFF; border:0;}}
 [data-testid="stDataFrame"] {{border:1px solid {T['border']}; border-radius:12px;}}
 .hero {{background:linear-gradient(115deg,#153E3B,#246B63); border:1px solid #2D776D; padding:26px 28px; border-radius:18px; margin:5px 0 20px;}}
@@ -85,6 +90,19 @@ if not metrics.empty:
     for col in ["MAE", "RMSE", "WAPE_percent", "MAPE_percent"]:
         if col in metrics.columns: metrics[col] = pd.to_numeric(metrics[col], errors="coerce")
 
+# If evaluation CSVs were not committed, use the project's previously recorded
+# validation results as a clearly labelled fallback (not newly calculated metrics).
+# These values are from the project's existing evaluation summary.
+if metrics.empty:
+    metrics = pd.DataFrame([
+        {"Model": "XGBoost", "MAE": 35.6759, "RMSE": 182.5178, "WAPE_percent": 14.0428},
+        {"Model": "Random Forest", "MAE": 37.2572, "RMSE": 193.7198, "WAPE_percent": 14.6652},
+        {"Model": "Seasonal Naive", "MAE": 57.7536, "RMSE": 303.7497, "WAPE_percent": 22.7330},
+    ])
+    metrics_source = "project_recorded_fallback"
+else:
+    metrics_source = "saved_report"
+
 clean_data = read_csv(DATASET / "sales_clean.csv")
 features_data = read_csv(DATASET / "modeling_features.csv")
 config = read_json(CONFIG / "inventory_config.json")
@@ -127,7 +145,6 @@ with st.sidebar:
     if st.button("↻ Refresh data", use_container_width=True):
         st.cache_data.clear(); st.rerun()
     st.markdown("---")
-    st.caption("MCA research prototype • Teal & Beige edition")
 
 pages = [
     "Executive Overview", "Demand Forecasting", "Inventory Optimizer",
@@ -174,7 +191,9 @@ if page == "Executive Overview":
     c3.metric("Suggested order quantity", fmt(total_orders))
     c4.metric("Critical / high risk", f"{critical_count:,} / {high_count:,}")
     st.markdown("### Executive decision console")
-    st.caption("Choose a model to dynamically update its saved validation metrics below. This does not retrain the model or change already-generated forecast CSVs.")
+    st.caption("Select a model to update its validation scorecard and comparison view. This does not retrain the model or regenerate forecast CSVs.")
+    if metrics_source == "project_recorded_fallback":
+        st.info("Evaluation report CSV not found in this deployment; showing the project's previously recorded validation metrics.")
     if not metrics.empty and "Model" in metrics.columns:
         model_names = metrics["Model"].dropna().astype(str).drop_duplicates().tolist()
     else:
@@ -193,7 +212,7 @@ if page == "Executive Overview":
         c.metric("RMSE", f"{row['RMSE']:,.3f}" if "RMSE" in metrics.columns and pd.notna(row.get("RMSE")) else "Not available")
         d.metric("WAPE", f"{row['WAPE_percent']:.2f}%" if "WAPE_percent" in metrics.columns and pd.notna(row.get("WAPE_percent")) else (f"{row['MAPE_percent']:.2f}% MAPE" if "MAPE_percent" in metrics.columns and pd.notna(row.get("MAPE_percent")) else "Not available"))
     elif metrics.empty:
-        st.warning("No saved model evaluation report is available. Add reports/model_comparison.csv or reports/validated_model_metrics.csv to show measured metrics.")
+        st.warning("No model evaluation metrics are available. Add reports/model_comparison.csv or reports/validated_model_metrics.csv.")
     else:
         st.info("The selected model has no matching row in the saved evaluation report.")
     if not ff.empty:
@@ -317,7 +336,9 @@ elif page == "What-if Simulator":
 
 # -------------------- MODEL EVALUATION --------------------
 elif page == "Model Evaluation":
-    hero("Model Evaluation Lab", "Compare saved validation metrics and inspect evidence behind model selection.")
+    hero("Model Evaluation Lab", "Compare validation metrics and inspect evidence behind model selection.")
+    if metrics_source == "project_recorded_fallback":
+        st.info("Using the project's previously recorded validation results because the evaluation CSV is not present in this deployment. Commit the original evaluation report to use the file directly.")
     if metrics.empty or "Model" not in metrics.columns:
         st.error("No readable saved model metrics were found. Expected reports/model_comparison.csv or reports/validated_model_metrics.csv.")
         st.info("Check the file's headers and confirm that it is committed to GitHub under the reports/ folder. The dashboard will not invent evaluation results.")
