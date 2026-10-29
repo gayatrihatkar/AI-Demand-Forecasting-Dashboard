@@ -651,12 +651,6 @@ elif page == "Demand Forecasting":
             key="forecast_model_choice"
         )
         missing_model_names = [name for name in ("XGBoost", "Random Forest") if name not in available_models]
-        if missing_model_names:
-            st.info(
-                "Original trained model artifacts are not available yet for: " + ", ".join(missing_model_names) + ". "
-                "Upload the original .joblib files above for this session, or add them to models/ in your repository. "
-                "Seasonal Naive and the other statistical baselines remain available without these artifacts."
-            )
         horizon_choice = st.slider("Forecast horizon (days)", 1, 28, 7, key="forecast_horizon_choice")
         st.caption("Future promotions are assumed to be zero. A generated forecast is kept in this session until downloaded; it does not overwrite your committed forecast CSV.")
         st.markdown("#### Historical sales data")
@@ -820,7 +814,6 @@ elif page == "Sales Explorer":
 elif page == "What-if Simulator":
     hero("What-if Simulator", "Explore how inventory recommendations change under alternative operating assumptions.")
     note()
-    st.warning("This is a transparent scenario estimate, not a new trained-model forecast. It recalculates order recommendations from saved demand and user-entered assumptions.")
     col1,col2,col3,col4,col5=st.columns(5)
     stock_cover=col1.slider("Assumed stock cover (days)",0.0,14.0,3.0,0.5)
     lead_days=col2.slider("Lead time (days)",1,30,3)
