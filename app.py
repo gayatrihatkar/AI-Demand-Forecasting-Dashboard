@@ -29,8 +29,25 @@ T = {"bg":"#F4F0E6", "panel":"#FFFCF5", "sidebar":"#153E3B", "text":"#18312F", "
 st.markdown(f"""
 <style>
 .stApp {{background:{T['bg']}; color:{T['text']};}}
-[data-testid="stSidebar"] {{background:{T['sidebar']}; border-right:1px solid {T['border']};}}
+[data-testid="stSidebar"] {{background:linear-gradient(180deg,#123B37 0%,#174943 58%,#103631 100%); border-right:1px solid #2D625A;}}
 [data-testid="stSidebar"] * {{color:#F8F5EC !important;}}
+[data-testid="stSidebar"] section {{padding-top:1.2rem;}}
+/* Branded sidebar header */
+.sidebar-brand {{padding:17px 15px 19px; margin:4px 0 18px; border:1px solid rgba(235,225,201,.2); border-radius:18px; background:linear-gradient(135deg,rgba(246,239,220,.13),rgba(246,239,220,.035)); box-shadow:0 10px 28px rgba(0,0,0,.10);}}
+.sidebar-brand-top {{display:flex; align-items:center; gap:11px;}}
+.sidebar-brand-icon {{display:flex; align-items:center; justify-content:center; width:43px; height:43px; border-radius:13px; background:#E7DCC4; color:#174943 !important; font-size:22px; box-shadow:inset 0 0 0 1px rgba(21,62,59,.08);}}
+.sidebar-brand-title {{font-size:17px; line-height:1.2; font-weight:750; letter-spacing:.01em; color:#FFFDF7 !important;}}
+.sidebar-brand-sub {{font-size:11px; margin-top:5px; color:#D4E6DD !important; letter-spacing:.09em; text-transform:uppercase;}}
+.sidebar-brand-rule {{height:3px; width:52px; margin-top:15px; border-radius:4px; background:linear-gradient(90deg,#D8B978,#F1E7D1);}}
+[data-testid="stSidebar"] div.stButton > button {{background:#E7DCC4 !important; color:#153E3B !important; border:1px solid #F1E7D1 !important; border-radius:12px !important; font-weight:700 !important; min-height:43px; box-shadow:0 4px 12px rgba(0,0,0,.10);}}
+[data-testid="stSidebar"] div.stButton > button:hover {{background:#F5EBD7 !important; color:#103631 !important; border-color:#F5EBD7 !important; transform:translateY(-1px);}}
+[data-testid="stSidebar"] [data-testid="stRadio"] > label {{font-size:11px !important; font-weight:800 !important; letter-spacing:.15em !important; color:#BBD2C9 !important; margin:5px 0 12px !important;}}
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] {{gap:6px;}}
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label {{display:flex; align-items:center; padding:9px 11px; margin:0; border:1px solid rgba(241,231,209,.10); border-radius:11px; background:rgba(255,255,255,.035); transition:all .18s ease;}}
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label:hover {{background:rgba(231,220,196,.13); border-color:rgba(231,220,196,.38);}}
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) {{background:linear-gradient(100deg,rgba(231,220,196,.22),rgba(231,220,196,.09)); border:1px solid rgba(231,220,196,.58); box-shadow:inset 3px 0 0 #E7DCC4;}}
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label p {{font-size:13px !important; font-weight:600; color:#FFFDF7 !important;}}
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label [data-testid="stMarkdownContainer"] {{padding-left:3px;}}
 [data-testid="stMetric"] {{background:linear-gradient(135deg,{T['panel']},{T['bg']}); border:1px solid {T['border']}; padding:17px 18px; border-radius:15px;}}
 [data-testid="stMetricLabel"] {{color:{T['muted']} !important;}}
 [data-testid="stMetricValue"] {{color:{T['text']} !important;}}
@@ -39,8 +56,6 @@ p, label, .stCaption {{color:{T['muted']};}}
 div.stButton > button, div.stDownloadButton > button {{border-radius:10px; border:1px solid {T['border']}; font-weight:600;}}
 div.stButton > button {{background:{T['accent']} !important; color:#FFFFFF !important; border:1px solid {T['accent']} !important;}}
 div.stButton > button:hover {{background:#0B5F59 !important; color:#FFFFFF !important; border-color:#0B5F59 !important;}}
-[data-testid="stSidebar"] div.stButton > button {{background:#F4F0E6 !important; color:#153E3B !important; border:1px solid #D8D0BF !important;}}
-[data-testid="stSidebar"] div.stButton > button:hover {{background:#E6DCC7 !important; color:#153E3B !important;}}
 div.stDownloadButton > button {{background:{T['panel']} !important; color:{T['text']} !important;}}
 div.stButton > button[kind="primary"] {{background:{T['accent']}; color:#FFFFFF; border:0;}}
 [data-testid="stDataFrame"] {{border:1px solid {T['border']}; border-radius:12px;}}
@@ -49,6 +64,7 @@ div.stButton > button[kind="primary"] {{background:{T['accent']}; color:#FFFFFF;
 .hero p {{font-size:15px; margin:0; color:#E2F0E8;}}
 .callout {{background:{T['panel']}; border:1px solid {T['border']}; border-left:4px solid {T['accent']}; padding:13px 16px; border-radius:10px; margin:8px 0 16px; color:{T['text']};}}
 .small-muted {{color:{T['muted']}; font-size:12px;}}
+@media (max-width: 700px) {{ .sidebar-brand {{padding:13px 11px;}} .sidebar-brand-title {{font-size:15px;}} }}
 </style>
 """, unsafe_allow_html=True)
 
