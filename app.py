@@ -27,28 +27,35 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Fixed Teal & Beige theme (theme selector intentionally removed)
-T = {"bg":"#F4F0E6", "panel":"#FFFCF5", "sidebar":"#153E3B", "text":"#18312F", "muted":"#526B66", "accent":"#0F766E", "accent2":"#C49A55", "border":"#D8D0BF", "plot":"plotly_white"}
+# Compact theme presets. Selection is stored in session state and applied on rerun.
+THEMES = {
+    "Teal & Beige": {"bg":"#F4F0E6", "panel":"#FFFCF5", "sidebar":"#153E3B", "text":"#18312F", "muted":"#526B66", "accent":"#0F766E", "accent2":"#C49A55", "border":"#D8D0BF", "plot":"plotly_white", "sidebar2":"#246B63", "hero_text":"#FFFDF7", "hero_sub":"#E2F0E8"},
+    "Ocean Blue": {"bg":"#EDF3F8", "panel":"#FFFFFF", "sidebar":"#153653", "text":"#172D40", "muted":"#526D82", "accent":"#247BA0", "accent2":"#F2B56B", "border":"#C9D8E4", "plot":"plotly_white", "sidebar2":"#286B8A", "hero_text":"#FFFFFF", "hero_sub":"#DCECF6"},
+    "Plum & Sand": {"bg":"#F5EFF3", "panel":"#FFFBFD", "sidebar":"#43283F", "text":"#332431", "muted":"#765F70", "accent":"#8A4F7D", "accent2":"#D7AD72", "border":"#DDCEDA", "plot":"plotly_white", "sidebar2":"#754D6E", "hero_text":"#FFFFFF", "hero_sub":"#F0DFEC"},
+    "Charcoal & Mint": {"bg":"#EEF2F0", "panel":"#FBFDFC", "sidebar":"#252F2D", "text":"#202C29", "muted":"#586B65", "accent":"#368575", "accent2":"#B6D8C8", "border":"#CCD8D2", "plot":"plotly_white", "sidebar2":"#3E655B", "hero_text":"#FFFFFF", "hero_sub":"#DDECE5"},
+}
+_theme_name = st.session_state.get("dashboard_theme", "Teal & Beige")
+T = THEMES.get(_theme_name, THEMES["Teal & Beige"])
 st.markdown(f"""
 <style>
 .stApp {{background:{T['bg']}; color:{T['text']};}}
-[data-testid="stSidebar"] {{background:linear-gradient(180deg,#123B37 0%,#174943 58%,#103631 100%); border-right:1px solid #2D625A;}}
+[data-testid="stSidebar"] {{background:linear-gradient(180deg,{T['sidebar']} 0%,{T['sidebar2']} 58%,{T['sidebar']} 100%); border-right:1px solid {T['accent']};}}
 [data-testid="stSidebar"] * {{color:#F8F5EC !important;}}
 [data-testid="stSidebar"] section {{padding-top:1.2rem;}}
 /* Branded sidebar header */
 .sidebar-brand {{padding:17px 15px 19px; margin:4px 0 18px; border:1px solid rgba(235,225,201,.2); border-radius:18px; background:linear-gradient(135deg,rgba(246,239,220,.13),rgba(246,239,220,.035)); box-shadow:0 10px 28px rgba(0,0,0,.10);}}
 .sidebar-brand-top {{display:flex; align-items:center; gap:11px;}}
-.sidebar-brand-icon {{display:flex; align-items:center; justify-content:center; width:43px; height:43px; border-radius:13px; background:#E7DCC4; color:#174943 !important; font-size:22px; box-shadow:inset 0 0 0 1px rgba(21,62,59,.08);}}
+.sidebar-brand-icon {{display:flex; align-items:center; justify-content:center; width:43px; height:43px; border-radius:13px; background:{T['panel']}; color:{T['sidebar']} !important; font-size:22px; box-shadow:inset 0 0 0 1px rgba(21,62,59,.08);}}
 .sidebar-brand-title {{font-size:17px; line-height:1.2; font-weight:750; letter-spacing:.01em; color:#FFFDF7 !important;}}
 .sidebar-brand-sub {{font-size:11px; margin-top:5px; color:#D4E6DD !important; letter-spacing:.09em; text-transform:uppercase;}}
-.sidebar-brand-rule {{height:3px; width:52px; margin-top:15px; border-radius:4px; background:linear-gradient(90deg,#D8B978,#F1E7D1);}}
-[data-testid="stSidebar"] div.stButton > button {{background:#E7DCC4 !important; color:#153E3B !important; border:1px solid #F1E7D1 !important; border-radius:12px !important; font-weight:700 !important; min-height:43px; box-shadow:0 4px 12px rgba(0,0,0,.10);}}
-[data-testid="stSidebar"] div.stButton > button:hover {{background:#F5EBD7 !important; color:#103631 !important; border-color:#F5EBD7 !important; transform:translateY(-1px);}}
+.sidebar-brand-rule {{height:3px; width:52px; margin-top:15px; border-radius:4px; background:linear-gradient(90deg,{T['accent2']},{T['panel']});}}
+[data-testid="stSidebar"] div.stButton > button {{background:{T['panel']} !important; color:{T['sidebar']} !important; border:1px solid {T['border']} !important; border-radius:12px !important; font-weight:700 !important; min-height:43px; box-shadow:0 4px 12px rgba(0,0,0,.10);}}
+[data-testid="stSidebar"] div.stButton > button:hover {{background:{T['bg']} !important; color:{T['sidebar']} !important; border-color:{T['accent2']} !important; transform:translateY(-1px);}}
 [data-testid="stSidebar"] [data-testid="stRadio"] > label {{font-size:11px !important; font-weight:800 !important; letter-spacing:.15em !important; color:#BBD2C9 !important; margin:5px 0 12px !important;}}
 [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] {{gap:6px;}}
 [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label {{display:flex; align-items:center; padding:9px 11px; margin:0; border:1px solid rgba(241,231,209,.10); border-radius:11px; background:rgba(255,255,255,.035); transition:all .18s ease;}}
 [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label:hover {{background:rgba(231,220,196,.13); border-color:rgba(231,220,196,.38);}}
-[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) {{background:linear-gradient(100deg,rgba(231,220,196,.22),rgba(231,220,196,.09)); border:1px solid rgba(231,220,196,.58); box-shadow:inset 3px 0 0 #E7DCC4;}}
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) {{background:linear-gradient(100deg,{T['accent']}44,{T['panel']}12); border:1px solid {T['accent2']}; box-shadow:inset 3px 0 0 {T['accent2']};}}
 [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label p {{font-size:13px !important; font-weight:600; color:#FFFDF7 !important;}}
 [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label [data-testid="stMarkdownContainer"] {{padding-left:3px;}}
 [data-testid="stMetric"] {{background:linear-gradient(135deg,{T['panel']},{T['bg']}); border:1px solid {T['border']}; padding:17px 18px; border-radius:15px;}}
@@ -62,9 +69,9 @@ div.stButton > button:hover {{background:#0B5F59 !important; color:#FFFFFF !impo
 div.stDownloadButton > button {{background:{T['panel']} !important; color:{T['text']} !important;}}
 div.stButton > button[kind="primary"] {{background:{T['accent']}; color:#FFFFFF; border:0;}}
 [data-testid="stDataFrame"] {{border:1px solid {T['border']}; border-radius:12px;}}
-.hero {{background:linear-gradient(115deg,#153E3B,#246B63); border:1px solid #2D776D; padding:26px 28px; border-radius:18px; margin:5px 0 20px;}}
-.hero h1 {{font-size:30px; margin:0 0 8px; color:#FFFDF7 !important;}}
-.hero p {{font-size:15px; margin:0; color:#E2F0E8;}}
+.hero {{background:linear-gradient(115deg,{T['sidebar']},{T['sidebar2']}); border:1px solid {T['accent']}; padding:26px 28px; border-radius:18px; margin:5px 0 20px;}}
+.hero h1 {{font-size:30px; margin:0 0 8px; color:{T['hero_text']} !important;}}
+.hero p {{font-size:15px; margin:0; color:{T['hero_sub']};}}
 .callout {{background:{T['panel']}; border:1px solid {T['border']}; border-left:4px solid {T['accent']}; padding:13px 16px; border-radius:10px; margin:8px 0 16px; color:{T['text']};}}
 .small-muted {{color:{T['muted']}; font-size:12px;}}
 @media (max-width: 700px) {{ .sidebar-brand {{padding:13px 11px;}} .sidebar-brand-title {{font-size:15px;}} }}
@@ -206,6 +213,35 @@ def make_features(history, future_date, store_id, family, promotion=0):
     }
 
 
+def model_artifact_candidates(model_name):
+    """Return common saved-artifact locations without changing or retraining models."""
+    model_dir = BASE / "models"
+    if model_name == "XGBoost":
+        names = ["xgboost_model.joblib", "best_demand_model.joblib", "xgb_model.joblib"]
+    elif model_name == "Random Forest":
+        names = ["random_forest_model.joblib", "rf_model.joblib", "random_forest.joblib"]
+    else:
+        return []
+    candidates = [model_dir / name for name in names]
+    # Also support a model artifact nested one level deeper in a repository folder.
+    if model_dir.exists():
+        try:
+            candidates.extend(x for x in model_dir.glob("*/*.joblib") if x.name in names)
+        except OSError:
+            pass
+    seen = set()
+    return [x for x in candidates if not (str(x) in seen or seen.add(str(x)))]
+
+
+def available_forecast_models():
+    available = []
+    for name in ("XGBoost", "Random Forest"):
+        if any(path.is_file() for path in model_artifact_candidates(name)):
+            available.append(name)
+    available.append("Seasonal Naive")
+    return available
+
+
 def generate_forecast(history_df, model_name, horizon, model_config):
     """Generate recursive forecasts in daily batches using a saved compatible model."""
     required = {"date", "store_nbr", "family", "sales"}
@@ -229,13 +265,15 @@ def generate_forecast(history_df, model_name, horizon, model_config):
             import joblib
         except Exception as exc:
             raise RuntimeError(f"joblib is unavailable: {exc}") from exc
-        candidates = {
-            "XGBoost": [BASE / "models" / "xgboost_model.joblib", BASE / "models" / "best_demand_model.joblib"],
-            "Random Forest": [BASE / "models" / "random_forest_model.joblib"],
-        }.get(model_name, [])
-        model_path = next((x for x in candidates if x.exists()), None)
+        candidates = model_artifact_candidates(model_name)
+        model_path = next((x for x in candidates if x.is_file()), None)
         if model_path is None:
-            raise FileNotFoundError(f"No saved model file found for {model_name}. Checked: " + ", ".join(str(x.relative_to(BASE)) for x in candidates))
+            expected = ", ".join(str(x.relative_to(BASE)) for x in candidates[:3]) or "models/"
+            raise FileNotFoundError(
+                f"The saved {model_name} model is not included in this deployed repository. "
+                f"Checked: {expected}. Select Seasonal Naive to generate a forecast now, or add the original trained .joblib artifact to the models/ folder. "
+                "No model was retrained or substituted."
+            )
         try:
             estimator = joblib.load(model_path)
         except Exception as exc:
@@ -409,6 +447,10 @@ pages = [
 ]
 with st.sidebar:
     page = st.radio("NAVIGATION", pages, index=0)
+    st.markdown("<div style='height:14px'></div><div style='border-top:1px solid rgba(255,255,255,.18);padding-top:14px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:11px;font-weight:800;letter-spacing:.12em;color:#D4E6DD;margin-bottom:7px;'>APPEARANCE</div>", unsafe_allow_html=True)
+    st.selectbox("Color theme", list(THEMES.keys()), index=list(THEMES.keys()).index(st.session_state.get("dashboard_theme", "Teal & Beige")) if st.session_state.get("dashboard_theme", "Teal & Beige") in THEMES else 0, key="dashboard_theme", label_visibility="collapsed")
+    st.caption("Theme changes apply across the dashboard.")
 
 # Global filters are placed in the Executive Overview content area, not the sidebar.
 # Their selections persist in session state and are applied to all dashboard sections.
@@ -497,7 +539,21 @@ elif page == "Demand Forecasting":
     hero("Demand Forecasting", "Explore saved forecasts or generate a new horizon using a compatible saved model.")
     st.markdown("### Generate a forecast")
     with st.expander("Forecast controls", expanded=True):
-        model_choice = st.selectbox("Forecast model", ["XGBoost", "Random Forest", "Seasonal Naive"], index=0, key="forecast_model_choice")
+        available_models = available_forecast_models()
+        if st.session_state.get("forecast_model_choice") not in available_models:
+            st.session_state["forecast_model_choice"] = available_models[0]
+        model_choice = st.selectbox(
+            "Forecast model", available_models,
+            index=0 if available_models[0] != "Seasonal Naive" else available_models.index("Seasonal Naive"),
+            key="forecast_model_choice"
+        )
+        missing_model_names = [name for name in ("XGBoost", "Random Forest") if name not in available_models]
+        if missing_model_names:
+            st.info(
+                "Saved model files not found in this Streamlit deployment: " + ", ".join(missing_model_names) + ". "
+                "They are hidden from forecast generation until their original trained .joblib files are added under models/. "
+                "Seasonal Naive is available without a saved model artifact."
+            )
         horizon_choice = st.slider("Forecast horizon (days)", 1, 28, 7, key="forecast_horizon_choice")
         st.caption("Future promotions are assumed to be zero. A generated forecast is kept in this session until downloaded; it does not overwrite your committed forecast CSV.")
         st.markdown("#### Historical sales data")
