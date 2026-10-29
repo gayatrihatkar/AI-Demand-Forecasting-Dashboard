@@ -8,6 +8,7 @@ import streamlit as st
 from datetime import datetime
 import traceback
 from io import BytesIO
+import tempfile
 
 # ============================================================
 # Demand Intelligence — MCA Research Dashboard
@@ -223,6 +224,11 @@ def model_artifact_candidates(model_name):
     else:
         return []
     candidates = [model_dir / name for name in names]
+    # A user may upload their original artifact in the Forecast Controls panel.
+    # Keep it in the temporary runtime only; do not modify the repository.
+    uploaded_path = st.session_state.get("uploaded_model_artifact_paths", {}).get(model_name)
+    if uploaded_path:
+        candidates.insert(0, Path(uploaded_path))
     # Also support a model artifact nested one level deeper in a repository folder.
     if model_dir.exists():
         try:
@@ -568,7 +574,7 @@ if page == "Executive Overview":
     st.markdown("### Executive decision console")
     st.caption("Select a model to update its validation scorecard and comparison view. This does not retrain the model or regenerate forecast CSVs.")
     if metrics_source == "project_recorded_fallback":
-        st.info("Evaluation report CSV not found in this deployment; showing the project's previously recorded validation metrics.")
+        st.caption("Showing the project's previously recorded validation metrics. These are historical validation results, not a new evaluation run.")
     if not metrics.empty and "Model" in metrics.columns:
         model_names = metrics["Model"].dropna().astype(str).drop_duplicates().tolist()
     else:
@@ -617,6 +623,25 @@ elif page == "Demand Forecasting":
     hero("Demand Forecasting", "Explore saved forecasts or generate a new horizon using a compatible saved model.")
     st.markdown("### Generate a forecast")
     with st.expander("Forecast controls", expanded=True):
+        st.caption("Optional: upload the original trained model artifacts if they are not present in the GitHub repository. Uploads are temporary for this app session and are not saved to GitHub.")
+        model_uploads = st.columns(2)
+        with model_uploads[0]:
+            uploaded_xgb = st.file_uploader("Upload original XGBoost .joblib", type=["joblib"], key="upload_xgb_artifact")
+        with model_uploads[1]:
+            uploaded_rf = st.file_uploader("Upload original Random Forest .joblib", type=["joblib"], key="upload_rf_artifact")
+        uploaded_paths = st.session_state.get("uploaded_model_artifact_paths", {})
+        for label, uploaded in (("XGBoost", uploaded_xgb), ("Random Forest", uploaded_rf)):
+            if uploaded is not None:
+                try:
+                    # Persist only in the runtime's temporary directory so the selected
+                    # artifact remains accessible across Streamlit reruns in this session.
+                    suffix = ".joblib"
+                    target = Path(tempfile.gettempdir()) / f"demand_dashboard_{label.lower().replace(' ', '_')}_{uploaded.name.replace('/', '_').replace('\\', '_')}"
+                    target.write_bytes(uploaded.getvalue())
+                    uploaded_paths[label] = str(target)
+                except Exception as upload_error:
+                    st.error(f"Could not prepare uploaded {label} artifact: {type(upload_error).__name__}: {upload_error}")
+        st.session_state["uploaded_model_artifact_paths"] = uploaded_paths
         available_models = available_forecast_models()
         if st.session_state.get("forecast_model_choice") not in available_models:
             st.session_state["forecast_model_choice"] = available_models[0]
@@ -628,9 +653,9 @@ elif page == "Demand Forecasting":
         missing_model_names = [name for name in ("XGBoost", "Random Forest") if name not in available_models]
         if missing_model_names:
             st.info(
-                "Saved model files not found in this Streamlit deployment: " + ", ".join(missing_model_names) + ". "
-                "They are hidden from forecast generation until their original trained .joblib files are added under models/. "
-                "Seasonal Naive is available without a saved model artifact."
+                "Original trained model artifacts are not available yet for: " + ", ".join(missing_model_names) + ". "
+                "Upload the original .joblib files above for this session, or add them to models/ in your repository. "
+                "Seasonal Naive and the other statistical baselines remain available without these artifacts."
             )
         horizon_choice = st.slider("Forecast horizon (days)", 1, 28, 7, key="forecast_horizon_choice")
         st.caption("Future promotions are assumed to be zero. A generated forecast is kept in this session until downloaded; it does not overwrite your committed forecast CSV.")
@@ -847,7 +872,7 @@ elif page == "What-if Simulator":
 elif page == "Model Evaluation":
     hero("Model Evaluation Lab", "Compare validation metrics and inspect evidence behind model selection.")
     if metrics_source == "project_recorded_fallback":
-        st.info("Using the project's previously recorded validation results because the evaluation CSV is not present in this deployment. Commit the original evaluation report to use the file directly.")
+        st.caption("Using the project's previously recorded validation results. These are historical validation results, not a new evaluation run.")
     if metrics.empty or "Model" not in metrics.columns:
         st.error("No readable saved model metrics were found. Expected reports/model_comparison.csv or reports/validated_model_metrics.csv.")
         st.info("Check the file's headers and confirm that it is committed to GitHub under the reports/ folder. The dashboard will not invent evaluation results.")
