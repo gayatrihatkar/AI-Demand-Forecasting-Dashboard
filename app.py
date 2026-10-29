@@ -65,6 +65,29 @@ div.stButton > button[kind="primary"] {{background:{T['accent']}; color:#FFFFFF;
 .callout {{background:{T['panel']}; border:1px solid {T['border']}; border-left:4px solid {T['accent']}; padding:13px 16px; border-radius:10px; margin:8px 0 16px; color:{T['text']};}}
 .small-muted {{color:{T['muted']}; font-size:12px;}}
 @media (max-width: 700px) {{ .sidebar-brand {{padding:13px 11px;}} .sidebar-brand-title {{font-size:15px;}} }}
+/* Sidebar polish: ensure nested Streamlit text respects contrast and nav reads as cards. */
+[data-testid="stSidebar"] div.stButton > button,
+[data-testid="stSidebar"] div.stButton > button p,
+[data-testid="stSidebar"] div.stButton > button span {{ color:#153E3B !important; }}
+[data-testid="stSidebar"] [data-testid="stRadio"] > label {{ display:none; }}
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] {{ gap:7px !important; padding-top:2px; }}
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label {{
+  min-height:42px; padding:9px 12px !important; margin:0 !important;
+  border:1px solid rgba(231,220,196,.14) !important; border-radius:12px !important;
+  background:linear-gradient(105deg,rgba(255,255,255,.065),rgba(255,255,255,.025)) !important;
+  box-shadow:0 2px 8px rgba(0,0,0,.045); transition:background .18s ease,border-color .18s ease,transform .18s ease;
+}}
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label:hover {{
+  background:rgba(231,220,196,.13) !important; border-color:rgba(231,220,196,.48) !important; transform:translateX(2px);
+}}
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) {{
+  background:linear-gradient(100deg,#E7DCC4,#D7C6A4) !important; border-color:#F4E9D2 !important;
+  box-shadow:inset 4px 0 0 #0F766E,0 5px 14px rgba(0,0,0,.12) !important;
+}}
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) p {{ color:#153E3B !important; font-weight:750 !important; }}
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label p {{ font-size:13.5px !important; line-height:1.25; }}
+[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label [data-testid="stMarkdownContainer"] {{ padding-left:5px; }}
+.sidebar-section-label {{font-size:10px; font-weight:800; letter-spacing:.18em; color:#BBD2C9 !important; margin:19px 0 9px; text-transform:uppercase;}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -158,9 +181,23 @@ all_families = sorted(inventory["family"].dropna().unique().tolist()) if "family
 risk_order = ["Critical","High","Medium","Low"]
 all_risks = [r for r in risk_order if r in inventory.get("inventory_risk", pd.Series(dtype=str)).unique()]
 with st.sidebar:
-    if st.button("↻ Refresh data", use_container_width=True):
+    # Visual-only sidebar branding; dashboard data and feature logic remain unchanged.
+    st.markdown("""
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-top">
+        <div class="sidebar-brand-icon">◈</div>
+        <div>
+          <div class="sidebar-brand-title">Demand Intelligence</div>
+          <div class="sidebar-brand-sub">Retail AI · Forecasting</div>
+        </div>
+      </div>
+      <div class="sidebar-brand-rule"></div>
+      <div style="font-size:12px;line-height:1.5;color:#D4E6DD;margin-top:13px;">Demand planning, inventory signals<br>and decision support in one place.</div>
+    </div>
+    """, unsafe_allow_html=True)
+    if st.button("↻   Refresh data", use_container_width=True):
         st.cache_data.clear(); st.rerun()
-    st.markdown("---")
+    st.markdown('<div class="sidebar-section-label">Workspace</div>', unsafe_allow_html=True)
 
 pages = [
     "Executive Overview", "Demand Forecasting", "Inventory Optimizer",
